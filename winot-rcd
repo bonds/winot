@@ -1,0 +1,13 @@
+#!/bin/sh
+#
+# $OpenBSD: winot,v 1.0 2015/09/13 00:35:04 bonds Exp $
+
+daemon="PATH=/home/scott/.rbenv/shims:/home/scott/.rbenv/bin:/usr/local/bin:/usr/bin:/sbin /home/scott/src/winot/winot"
+
+. /etc/rc.d/rc.subr
+
+pexp=".*/home/scott/src/winot/winot"
+
+rc_bg=YES
+rc_reload=NO
+rc_cmd $1

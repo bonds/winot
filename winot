@@ -1,0 +1,474 @@
+#!/usr/bin/env ruby
+
+# Hi. If you want to figure out how this works, I suggest you start at the
+# bottom at the comment: start of main execution.
+
+require 'open3'
+require 'pry'
+require 'logging'
+require 'yaml' # for saving and loading config
+require 'fileutils' # for ruby-based chown and chmod
+require 'optparse' # for parsing options
+gem 'pry'; require 'pry' # for troubleshooting
+gem 'logging'; require 'logging' # for logging
+
+IP_REGEX  = /\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b/
+MAC_REGEX = /([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})/
+
+# secure the config file
+def fix_permissions
+  if File.exist? config_path
+    #FileUtils.chown user, user, config_path
+    #FileUtils.chmod 0600, config_path
+    FileUtils.chown 'root', 'wheel', config_path
+    FileUtils.chmod 0640, config_path
+  end
+end
+
+# figure out the (non-root) user that's running this script, if applicable
+def user
+  @user ||= run("logname").strip
+end
+
+# figure out the path to store config in the (non-root) user's home directory
+def config_path
+  #@config_path ||= (
+    #home = run("userinfo #{user}").split("\n").select {|a| a.match(/^dir/)}.first.match(/^dir\s*(.*)/)[1]
+    #@options[:config_path] || File.join(home, '.winot')
+  #)
+  '/etc/winot.cfg'
+end
+
+# workaround so we can prompt for a single character in ruby
+# https://stackoverflow.com/questions/174933/how-to-get-a-single-character-without-pressing-enter/174967#174967
+def get_char
+  state = `stty -g`
+  `stty raw -echo -icanon isig`
+  STDIN.getc.chr
+ensure
+  `stty #{state}`
+end
+
+# load configuration
+def config
+  if File.exists? config_path
+    file = File.open(config_path)
+    if !@config || @config.empty? || !@config[:updated_at] || @config[:updated_at] < file.mtime
+      begin
+        new_config = YAML.load(file.read)
+        new_config[:updated_at] = file.mtime
+        if @config && @config[:updated_at] && @config[:updated_at] < file.mtime
+          @logger.info 'reloaded configuration'
+        end
+        @config = new_config
+      rescue
+      end
+    end
+  end
+  @config ||= {networks: {}}
+  @config
+end
+
+# figure out whether the interface is physically connected to the network
+def is_active(interface)
+  result = run("ifconfig #{interface}").match(/status: (.*)/)
+  result && result[1] == 'active'
+end
+
+def run(command, verbosity=1)
+  @mutex.synchronize do # running more than one command at a time leads to crashes
+    @logger.debug "run: #{command}" if verbosity >= 1
+    @run_stdin, @run_stdout, @run_stderr, @run_thread = Open3.popen3 "#{command} 2>&1"
+    @run_thread.value # block until the command returns
+    @output = @run_stdout.read
+    if verbosity >= 2
+      @output.strip.split("\n").map {|a| @logger.debug a}
+    end
+  end
+  @output
+end
+
+def connect(interface, network, password)
+  wpakey_string = ""
+  wpakey_string += "wpakey #{password}" if !password.empty?
+  run "ifconfig #{interface} nwid \"#{network}\" #{wpakey_string} up", 2
+  if @run_thread.value.to_i != 0
+    @logger.error 'could not connect to network'
+    return false
+  else
+    i = 0
+    until is_active(interface)
+      if i > 10
+        @logger.error 'could not connect to network--your adapter is probably in a bad state'
+        @bad_state = true
+        return false
+      end
+      i += 1
+      sleep 1
+    end
+    run "dhclient #{interface}", 2
+    @routes = nil
+    if @run_thread.value.to_i == 0
+      find_local_gateway
+    else
+      @logger.error 'could not get a lease from the DHCP server'
+      return false
+    end
+  end
+  true
+end
+
+def show_menu(interface, networks)
+  max_networks = 8
+  puts 'choose a network to connect to:'
+  nwids = networks.sort_by {|k,v| -v[:strength].gsub('dB','').to_i}.map {|a| a[0]}
+  0.upto([networks.size-1,max_networks].min) do |i|
+    puts "#{(i+97).chr}) #{nwids[i]} #{networks[nwids[i]][:strength]}"
+  end
+  puts "#{(max_networks+97+1).chr}) enter name manually"
+  choice = ''
+  until choice.match(/[a-z]/) && choice.ord-97 <= networks.size
+    choice = get_char
+  end
+  choice = choice.ord-97
+  if choice < max_networks
+    nwid = nwids[choice]
+  else
+    puts "enter the wireless network name:"
+    nwid = gets.strip
+  end
+  puts "enter the password for '#{nwid}':"
+  password = gets.strip
+  connected = connect interface, nwid, password
+
+  # save the new password
+  if connected
+    config[:networks] ||= {}
+    config[:networks][nwid] ||= {}
+    config[:networks][nwid][:password] = password
+    config[:networks][nwid][:bssids] ||= []
+    config[:networks][nwid][:bssids] << run("ifconfig #{interface}").match(/bssid (.*?) /)[1]
+    File.write(config_path, YAML.dump(config))
+    fix_permissions
+  end
+
+  connected
+end
+
+def virtual_interfaces
+  @virtual_interfaces ||= run("ifconfig -C").strip.split(' ')
+end
+
+def ifconfig
+  @ifconfig ||= run('ifconfig')
+end
+
+# parse ifconfig output, turn it into a hash
+def interfaces
+  result = {}
+  current_interface = nil
+  ifconfig.lines.each do |line|
+    if line.match(/^(\S*?): /)
+      current_interface = line.match(/^(\S*?): /)[1]
+    end
+    result[current_interface] ||= {}
+    result[current_interface][:raw] ||= ''
+    result[current_interface][:raw] += line + "\n"
+  end
+  result.keys.each do |k|
+    media = result[k][:raw].match(/media: (.*)/)
+    status = result[k][:raw].match(/status: (.*)/)
+    result[k][:status] = status[1].strip if status
+    ip = result[k][:raw].match(/inet (#{IP_REGEX})/)
+    result[k][:ip] = ip[1] if ip
+    groups = result[k][:raw].match(/groups: (.*)/)
+    groups = groups ? groups[1].strip.split(' ') : []
+    if media
+      if media[1].include?('IEEE802.11')
+        result[k][:wireless] = true
+      else
+        result[k][:wireless] = false
+      end
+      if media[1].include?('Ethernet') && (groups & virtual_interfaces).empty?
+        result[k][:wired] = true
+      else
+        result[k][:wired] = false
+      end
+    end
+
+   end
+
+  result
+end
+
+def usable_interfaces
+  interfaces.select {|k,v| v[:wired] || v[:wireless]}
+end
+
+def ip?
+  !usable_interfaces.select {|k,v| v[:ip]}.empty?
+end
+
+def interface?
+  !usable_interfaces.empty?
+end
+
+def link?
+  usable_interfaces.each do |k,v|
+    if v[:status] == 'active'
+      return true
+    end
+  end
+  false
+end
+
+def ping(host)
+  if ip?
+    result = false
+    0.upto(4) do
+      run "ping -q -c 1 #{host}"
+      if @run_thread.value.exitstatus == 0
+        result = true
+        break
+      end
+    end
+    @logger.debug "ping #{host} #{result ? 'ok' : 'bad'}"
+  else
+    @logger.debug "ping #{host} skipped"
+  end
+  result
+end
+
+def routes
+  @routes ||= run("route -n show -inet")
+end
+
+def cleanup
+  @logger.debug 'cleaning up'
+  sleep 1 # helps avoid crashes, not sure why
+  if @run_thread
+    begin
+      timeout 1 do
+        @run_thread.value
+      end
+    rescue
+      @logger.debug 'killing run thread'
+      @run_thread.exit
+    end
+  end
+end
+
+def find_local_gateway
+  default_route = routes.match(/default\s*(.*)/)
+  if default_route
+    default_route = default_route[1].split(' ')
+    @local_gateway = default_route[0]
+    @local_gateway_if = default_route[6]
+  end
+end
+
+def get_ip
+  interfaces.select {|k,v| (v[:wired] || v[:wireless]) && v[:status] == 'active'}.keys.each do |interface|
+    run "dhclient #{interface}"
+    sleep 2 # give dhclient some time to setup default route
+    if @run_thread.value == 0
+      @routes = nil
+      find_local_gateway
+      break
+    end
+  end
+end
+
+def get_link
+  # if we have a wireless interface, connect to wireless access point
+  # if we only have wired networks there's nothing to do here, we just have to
+  # wait for the cable to be plugged in
+  interfaces.select {|k,v| v[:wireless]}.keys.each do |interface|
+    connected = false
+    networks = {}
+    @logger.debug 'looking for wireless networks nearby'
+    lines = run("ifconfig #{interface} scan").scan(/(nwid.*)/)[1..-1].flatten
+    lines.each do |line|
+      nwid = line.match(/nwid(.*)chan /)[1].strip.gsub('"', '')
+      networks[nwid] = {
+        channel:  line.match(/chan (.*?) /)[1],
+        bssid:    line.match(/bssid (.*?) /)[1],
+        strength: line.match(/bssid .*? (.*?) /)[1],
+        speed:    line.match(/bssid .*? .*? (.*?) /)[1]
+      }
+    end
+    found_nwids = networks.keys.uniq
+    found_bssids = networks.values.map {|a| a[:bssid]}
+
+    if found_nwids.empty?
+      @logger.warn 'no networks were found--your adapter is probably in a bad state'
+      @bad_state = true
+      sleep 1
+      return false
+    end
+
+    if config[:networks]
+      familiar_nwids = config[:networks].keys & found_nwids
+      familiar_nwids.each do |nwid|
+        @logger.debug "connecting to #{nwid}"
+        connected = connect interface, nwid, config[:networks][nwid][:password]
+        if connected
+          @logger.info "connected to #{nwid}"
+          break
+        end
+      end
+    end
+
+    if !connected
+      if config[:networks]
+        familiar_bssids = config[:networks].map {|k,v| v[:bssids]}.flatten & found_bssids
+        familiar_bssids.each do |bssid|
+          nwid = config[:networks].select {|k,v| v[:bssids].include?(bssid)}.first.first
+          @logger.debug "connecting to #{nwid} at #{bssid}"
+          connected = connect interface, nwid, config[:networks][nwid][:password]
+          if connected
+            @logger.info "connected to #{nwid} at #{bssid}"
+            break
+          end
+        end
+      end
+    end
+
+    if @options[:interactive]
+      until connected do
+        connected = show_menu(interface, networks)
+      end
+    end
+    if connected
+      sleep 0
+    else
+      @logger.warn 'only unfamiliar networks were found'
+    end
+  end
+end
+
+def connected?
+  return false if @connection_history.empty?
+  @connection_history.sort_by {|a| a.first}.last.last == :connected
+end
+
+
+
+
+
+# start of main execution
+
+if Process.uid != 0
+  puts 'connect must be run using sudo'
+  exit 1
+end
+
+@logger = Logging.logger['winot']
+@logger.add_appenders(
+  Logging.appenders.stdout,
+  Logging.appenders.rolling_file(
+    'varlog',
+    layout: Logging.layouts.pattern(pattern: '[%d] %-5l: %m\n'),
+    filename: '/var/log/winot',
+    roll_by: 'date',
+    keep: 3)
+)
+@logger.level = :debug
+@logger.info 'started'
+@mutex = Mutex.new
+
+trap 'SIGINT' do
+  print "\C-h\C-h" # delete the ^C from the output
+  @logger.info 'control-c pressed, exiting'
+  cleanup
+  exit
+end
+
+begin
+  raise if !File.new('/tmp/winot.lock', 'w').flock(File::LOCK_NB | File::LOCK_EX)
+rescue
+  @logger.error 'another copy of connect is already running'
+  exit 2
+end
+
+# parse command line arguments
+@options = {}
+@options[:interactive] = $stdin.tty?
+op = OptionParser.new do |opts|
+  opts.banner = 'Usage: winot [options] [interface]'
+  opts.on('-i', '--interactive', 'run in interactive mode') do
+    @options[:interactive] = true
+  end
+  opts.on('-d', '--daemon', 'run in non-interactive mode') do
+    @options[:interactive] = false
+  end
+  opts.on('-c', '--config [FILE]', String, 'load config from this file') do |file|
+    @options[:config_path] = file
+  end
+end
+op.parse!
+if ARGV[0]
+  @options[:interface] = ARGV[0]
+end
+
+fix_permissions
+find_local_gateway
+@connection_history = {}
+
+@next = :monitoring
+
+# loop forever, watching the connection until control-c is pressed
+until false do
+  @logger.debug "start loop @ #{@next.to_s}"
+  @ifconfig = nil
+  @routes = nil
+
+  case @next
+  when :monitoring
+    if !@local_gateway
+      @next = :no_gateway
+    elsif !ip?
+      @next = :no_ip
+    elsif !ping(@local_gateway)
+      @next = :bad_link
+    else
+     if !connected?
+        @logger.info 'connected to wifi'
+        @connection_history[Time.now] = :connected
+      end
+      sleep 3
+    end
+  when :no_gateway
+    if !ip?
+      @next = :no_ip
+    else
+      get_ip
+      @next = :monitoring
+    end
+  when :no_ip
+    if !link?
+      @next = :no_link
+    else
+      get_ip
+      @next = :monitoring
+    end
+  when :no_link
+    if !interface?
+      @next = :no_interface
+    else
+      get_link
+      @next = :no_ip
+    end
+  when :bad_link
+    if !interface?
+      @next = :no_interface
+    else
+      run("ifconfig #{@local_gateway_if} down") if @local_gateway_if # bad link, try to reset
+      @next = :no_link
+    end
+  when :no_interface
+    sleep 1 # let's wait a bit between checks to see if an interface has appeared
+    @next = :no_link
+  end
+end
+
