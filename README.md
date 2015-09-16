@@ -10,10 +10,10 @@ daemon. Winot was written in Ruby and it was tested on OpenBSD 5.7-stable.
 1. install Ruby
 1. install these gems: logging, pry
 1. git clone this repo
-1. ````sudo ./winot````
-1. customize winot-rcd to reflect your Ruby setup and your winot location...I
-   use rbenv and store winot under $HOME/src/winot/
-1. copy winot-rcd to /etc/rc.d/winot
+1. ````mv winot /usr/local/bin/````
+1. ````mv winot-rcd /etc/rc.d/````
+1. ````sudo winot````
+1. customize winot-rcd to reflect your Ruby setup...I use rbenv
 1. ````sudo rcctl enable winot````
 1. ````sudo rcctl start winot````
 
