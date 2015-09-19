@@ -118,7 +118,7 @@ def connect(interface, network, password)
   true
 end
 
-def show_menu(interface, networks)
+def show_menu(interface, networks, try_to_connect=false)
   max_networks = 8
   puts 'choose a network to connect to:'
   nwids = networks.sort_by {|k,v| -v[:strength].gsub('dB','').to_i}.map {|a| a[0]}
@@ -139,7 +139,11 @@ def show_menu(interface, networks)
   end
   puts "enter the password for '#{nwid}':"
   password = gets.strip
-  connected = connect interface, nwid, password
+  if try_to_connect
+    connected = connect interface, nwid, password
+  else
+    connected = true
+  end
 
   # save the new password
   if connected
@@ -279,7 +283,7 @@ def get_ip
   end
 end
 
-def get_link
+def get_link(try_to_connect=true)
   # if we have a wireless interface, connect to wireless access point
   # if we only have wired networks there's nothing to do here, we just have to
   # wait for the cable to be plugged in
@@ -307,7 +311,7 @@ def get_link
       return false
     end
 
-    if config[:networks]
+    if config[:networks] && try_to_connect
       familiar_nwids = config[:networks].keys & found_nwids
       familiar_nwids.each do |nwid|
         @logger.debug "connecting to #{nwid}"
@@ -319,7 +323,7 @@ def get_link
       end
     end
 
-    if !connected
+    if !connected && try_to_connect
       if config[:networks]
         familiar_bssids = config[:networks].map {|k,v| v[:bssids]}.flatten & found_bssids
         familiar_bssids.each do |bssid|
@@ -335,9 +339,10 @@ def get_link
     end
 
     if @options[:interactive]
-      until connected do
-        connected = show_menu(interface, networks)
-      end
+      show_menu(interface, networks, try_to_connect=false)
+      #until connected do
+        #connected = show_menu(interface, networks)
+      #end
     end
     if connected
       sleep 0
@@ -416,6 +421,11 @@ find_local_gateway
 @connection_history = {}
 
 @next = :monitoring
+
+if @options[:interactive]
+  get_link(try_to_connect=false)
+  exit
+end
 
 # loop forever, watching the connection until control-c is pressed
 until false do
