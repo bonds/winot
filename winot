@@ -339,7 +339,7 @@ def get_link(try_to_connect=true)
     end
 
     if @options[:interactive]
-      show_menu(interface, networks, try_to_connect=false)
+      show_menu(interface, networks, false)
       #until connected do
         #connected = show_menu(interface, networks)
       #end
@@ -423,7 +423,7 @@ find_local_gateway
 @next = :monitoring
 
 if @options[:interactive]
-  get_link(try_to_connect=false)
+  get_link(false)
   exit
 end
 
