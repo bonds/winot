@@ -36,7 +36,7 @@ def config_path
     #home = run("userinfo #{user}").split("\n").select {|a| a.match(/^dir/)}.first.match(/^dir\s*(.*)/)[1]
     #@options[:config_path] || File.join(home, '.winot')
   #)
-  '/etc/winot.cfg'
+  '/etc/winot'
 end
 
 # workaround so we can prompt for a single character in ruby
@@ -432,7 +432,7 @@ until false do
     elsif !ping(@local_gateway)
       @next = :bad_link
     else
-     if !connected?
+      if !connected?
         @logger.info 'connected to wifi'
         @connection_history[Time.now] = :connected
       end
