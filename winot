@@ -90,7 +90,11 @@ end
 
 def connect(interface, network, password)
   wpakey_string = ""
-  wpakey_string += "wpakey #{password}" if !password.empty?
+  if !password.empty?
+    wpakey_string += "wpakey #{password}"
+  else
+    wpakey_string += "-wpakey"
+  end
   run "ifconfig #{interface} nwid \"#{network}\" #{wpakey_string} up", 2
   if @run_thread.value.to_i != 0
     @logger.error 'could not connect to network'
@@ -151,7 +155,9 @@ def show_menu(interface, networks, try_to_connect=false)
     config[:networks][nwid] ||= {}
     config[:networks][nwid][:password] = password
     config[:networks][nwid][:bssids] ||= []
-    config[:networks][nwid][:bssids] << run("ifconfig #{interface}").match(/bssid (.*?) /)[1]
+    if bssids = run("ifconfig #{interface}").match(/bssid (.*?) /)
+      config[:networks][nwid][:bssids] << bssids[1]
+    end
     File.write(config_path, YAML.dump(config))
     fix_permissions
   end
