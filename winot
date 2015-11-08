@@ -123,7 +123,7 @@ def connect(interface, network, password)
 end
 
 def show_menu(interface, networks, try_to_connect=false)
-  max_networks = 8
+  max_networks = 20
   puts 'choose a network to connect to:'
   nwids = networks.sort_by {|k,v| -v[:strength].gsub('dB','').to_i}.map {|a| a[0]}
   0.upto([networks.size-1,max_networks].min) do |i|
