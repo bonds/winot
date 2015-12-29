@@ -1,0 +1,11 @@
+#!/bin/sh
+
+daemon="/usr/local/bin/winot"
+
+. /etc/rc.d/rc.subr
+
+pexp="/bin/sh /usr/local/bin/winot"
+
+rc_bg=YES
+rc_reload=NO
+rc_cmd $1

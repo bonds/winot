@@ -1,24 +1,44 @@
-# Intro
+This is a script for OpenBSD that keeps you connected to your wireless
+connections at all times.
 
-This is a script for OpenBSD that I use to stay connected to my wireless
-networks at all times. It may be used interactively for adding new wifi
-networks when a recognized network is not available, or it can be run as a
-daemon. Winot was written in Ruby and it was tested on OpenBSD 5.7-stable.
+# Features
+
+* connects to wwan and reconnects as needed
+* connects to wifi and reconnects as needed
+* connects to vpn and reconnects as needed
+* routes traffic according to vpn when its available, otherwise it routes
+  traffic to the wwan
+* does not route traffic across the wifi except to connect to vpn, in other
+  words, assumes your wifi network is untrusted, i.e. you work at the airport or
+  at cafes on occasion
+* notices when your wifi signal is weak, scans for a stronger BSSID, and
+  connects to it
 
 # Installation
 
-1. install Ruby
-1. install these gems: logging, pry
+## Requirements
+
+* [wiconfig][1] is installed
+* a wwan adapter that with a connection script called 'att'
+* an SSH server with tunneling enabled
+
+## Steps
+
 1. git clone this repo
-1. ````mv winot /usr/local/bin/````
-1. ````mv winot-rcd /etc/rc.d/````
-1. ````sudo winot````
-1. customize winot-rcd to reflect your Ruby setup...I use rbenv
-1. ````sudo rcctl enable winot````
-1. ````sudo rcctl start winot````
+1. ````doas mv winot /usr/local/bin/````
+1. ````doas mv winot.etc /etc/winot````
+1. ````doas mv winot.rcd /etc/rc.d/winot````
+1. ````doas chown root:wheel /etc/winot````
+1. ````doas chmod 600 /etc/winot
+1. update your info in /etc/winot
+1. ````doas winot````
+1. ````doas rcctl enable winot````
+1. ````doas rcctl start winot````
 
 # Features
 
 * browse wifi networks and enter password
 * specify a hidden network to connect to
 * run as a daemon
+
+  [1]: https://github.com/devious/wiconfig

@@ -1,0 +1,4 @@
+vpn_gateway=""
+vpn_server=""
+wlan_if=""
+wwan_peer=""
