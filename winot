@@ -1,8 +1,6 @@
 #!/bin/sh
 
 source /etc/winot
-lock_wlan_wiconfig="no"
-lock_wlan_dhclient="no"
 vpn_command="ssh -N -w 0:0 $vpn_server"
 
 # functions that do stuff
