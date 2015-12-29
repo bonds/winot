@@ -50,7 +50,7 @@ function connect_to_vpn {
 
 function ssh_auth_sock {
 
-    grep SSH_AUTH_SOCK /home/scott/.ssh/environment | sed 's/.*SSH_AUTH_SOCK \(.*\);/\1/g' | tr -d '\n'
+    grep SSH_AUTH_SOCK $ssh_auth_sock_file | sed 's/.*SSH_AUTH_SOCK \(.*\);/\1/g' | tr -d '\n'
 
 }
 

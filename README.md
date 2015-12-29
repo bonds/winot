@@ -22,6 +22,9 @@ connections at all times.
 * a wwan adapter
 * a wifi adapter
 * an SSH server with tunneling enabled
+* an SSH agent running with the credentials for accessing your SSH server loaded
+* tun0 is setup to connect to your SSH server using tunnelling
+* ppp0 is setup to connect to your wwan server
 
 ## Steps
 
