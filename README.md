@@ -18,9 +18,9 @@ connections at all times.
 
 ## Requirements
 
-* [wiconfig][1] is installed
 * a wwan adapter
 * a wifi adapter
+* [wiconfig][1] is installed and configured with your wifi passwords
 * an SSH server with tunneling enabled
 * an SSH agent running with the credentials for accessing your SSH server loaded
 * tun0 is setup to connect to your SSH server using tunnelling
