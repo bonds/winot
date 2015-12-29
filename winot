@@ -1,7 +1,10 @@
 #!/bin/sh
 
-source /etc/winot
+. /etc/winot
+echo "wlan_if is: $wlan_if"
 vpn_command="ssh -N -w 0:0 $vpn_server"
+vpn_if=tun0
+wwan_if=ppp0
 
 # functions that do stuff
 
@@ -13,7 +16,7 @@ function default_route_ip {
 
 function wwan_gateway {
 
-    route -n show -inet | grep ppp0 | grep UHl | head -n 1 | awk '{ print $2 }' | tr -d '\n'
+    route -n show -inet | grep $wwan_if | grep UHl | head -n 1 | awk '{ print $2 }' | tr -d '\n'
 
 }
 
@@ -40,8 +43,8 @@ function connect_to_vpn {
     if mkdir /tmp/vpn.lock > /dev/null 2>&1; then
         route delete $vpn_server
         route add $vpn_server $(wlan_gateway)
-        ifconfig tun0 down
-        ifconfig tun0 up
+        ifconfig $vpn_if down
+        ifconfig $vpn_if up
         pkill -5 -f "$vpn_command"
         SSH_AUTH_SOCK=$(ssh_auth_sock) $vpn_command &
     fi
@@ -62,7 +65,7 @@ function wlan_gateway {
 
 function good_wwan_connection {
 
-    ifconfig ppp0 | grep inet > /dev/null 2>&1
+    ifconfig $wwan_if | grep inet > /dev/null 2>&1
 
 }
 
@@ -146,9 +149,12 @@ function cleanup {
 
     echo fn:cleanup
 
-    # kill vpn process
-
     pkill -5 -f "$vpn_command"
+    ifconfig $vpn_if destroy
+    pkill -f pppd
+    sleep 1 # give pppd a chance to exit and free up the wwan_if
+    ifconfig $wwan_if destroy
+    ifconfig $wlan_if -nwid -wpakey -inet down
 
     # delete directories used as locks
 
@@ -167,6 +173,11 @@ if [[ `id -u` != 0 ]]; then
 fi
 
 trap "cleanup; exit" INT TERM QUIT HUP
+
+echo starting up
+
+ifconfig $wwan_if create up
+ifconfig $vpn_if create 192.168.209.2 192.168.209.1 netmask 255.255.255.252 up
 
 echo monitoring network connections
 
