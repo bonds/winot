@@ -7,7 +7,7 @@ fi
 
 echo installing winot
 
-cp winot /usr/local/bin/winot
+cp winot.sh /usr/local/bin/winot
 chown root:bin /usr/local/bin/winot
 chmod 555 /usr/local/bin/winot
 

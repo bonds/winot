@@ -3,12 +3,10 @@ connections at all times.
 
 # Features
 
-* connects to wwan and reconnects as needed
-* connects to wifi and reconnects as needed
-* connects to vpn and reconnects as needed
+* connects to wwan, wlan (aka wifi), and vpn and reconnects as needed
 * routes traffic via vpn when its available, otherwise it routes traffic via the
   wwan
-* does not route traffic across the wifi except to connect to vpn, in other
+* does NOT route traffic across the wifi except to connect to vpn, in other
   words, assumes your wifi network is untrusted, i.e. you work at the airport or
   at cafes on occasion
 * notices when your wifi signal is weak, scans for a stronger BSSID, and
