@@ -19,7 +19,8 @@ connections at all times.
 ## Requirements
 
 * [wiconfig][1] is installed
-* a wwan adapter that with a connection script called 'att'
+* a wwan adapter
+* a wifi adapter
 * an SSH server with tunneling enabled
 
 ## Steps
@@ -34,11 +35,5 @@ connections at all times.
 1. ````doas winot````
 1. ````doas rcctl enable winot````
 1. ````doas rcctl start winot````
-
-# Features
-
-* browse wifi networks and enter password
-* specify a hidden network to connect to
-* run as a daemon
 
   [1]: https://github.com/devious/wiconfig
