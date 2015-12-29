@@ -30,7 +30,7 @@ connections at all times.
 1. ````doas mv winot.etc /etc/winot````
 1. ````doas mv winot.rcd /etc/rc.d/winot````
 1. ````doas chown root:wheel /etc/winot````
-1. ````doas chmod 600 /etc/winot
+1. ````doas chmod 600 /etc/winot````
 1. update your info in /etc/winot
 1. ````doas winot````
 1. ````doas rcctl enable winot````
