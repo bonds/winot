@@ -18,6 +18,7 @@ connections at all times.
 
 ## Requirements
 
+* OpenBSD 5.8 or later
 * a wwan adapter
 * a wifi adapter
 * [wiconfig][1] is installed and configured with your wifi passwords
