@@ -29,10 +29,13 @@ function wwan_gateway {
 
 }
 
-
 function check_vpn {
 
     echo fn:check_vpn
+
+    if [ "$vpn_enabled" != 'yes' ]; then
+        return 1
+    fi
 
     counter=0
     while [ $counter -lt 3 ]; do
@@ -87,6 +90,7 @@ function good_wwan_process {
 function check_routes {
 
     echo fn:check_routes
+
     if check_wlan && check_vpn; then
         echo good vpn
         if [[ $(default_route_ip) != $vpn_gateway ]]; then
@@ -108,7 +112,11 @@ function check_routes {
     fi
 }
 
-function check_pppd {
+function check_wwan {
+
+    if [ "$wwan_enabled" != 'yes' ]; then
+        return 1
+    fi
 
     if ! pgrep pppd > /dev/null 2>&1; then
         echo restarting pppd
@@ -120,6 +128,11 @@ function check_pppd {
 function check_wlan {
 
     echo fn:check_wlan
+
+    if [ "$wlan_enabled" != 'yes' ]; then
+        return 1
+    fi
+
     if ifconfig $wlan_if | grep "status: active" > /dev/null 2>&1; then
         if ifconfig $wlan_if | grep "inet" > /dev/null 2>&1; then
             if ping -q -c 1 -w 1 $(wlan_gateway) > /dev/null 2>&1; then
@@ -151,6 +164,8 @@ function check_wlan_signal {
     # the same BSSID, so only scan when the signal is consistently weak and the
     # connection is relatively idle
 
+    echo fn:check_wlan_signal
+
     signal_strength=$(cat /tmp/$wlan_if-signal.log | sort -rn | head -1 | tr -d '\n')
     bandwidth=$(cat /tmp/$wlan_if-bandwidth.log | sort -rn | head -1 | tr -d '\n')
     signal_strength_count=$(wc -l /tmp/$wlan_if-signal.log | awk '{print $1}' | tr -d '\n')
@@ -173,7 +188,7 @@ function log_wlan_stats {
 
     while true
     do
-        systat -w 100 -B ifstat 1 | grep iwm0 | awk '{print $7}' >> /tmp/$wlan_if-bandwidth.log
+        systat -w 100 -B ifstat 1 | grep $wlan_if | awk '{print $7}' >> /tmp/$wlan_if-bandwidth.log
         ifconfig $wlan_if | grep bssid | sed -E "s/.*bssid.* (.*)%.*/\1/g" >> /tmp/$wlan_if-signal.log
         tail -n 30 /tmp/$wlan_if-bandwidth.log > /tmp/$wlan_if-bandwidth.log.new
         tail -n 30 /tmp/$wlan_if-signal.log > /tmp/$wlan_if-signal.log.new
@@ -226,23 +241,52 @@ trap "cleanup; exit" INT TERM QUIT HUP
 
 echo starting up
 
-. /etc/winot
+. /etc/winot # load config
 wlan_if=$(choose_wlan_adapter)
 vpn_command="ssh -N -w 0:0 $vpn_server"
-vpn_if=${vpn_if-"tun0"}
-wwan_if=${wwan_if-"ppp0"}
 
 cleanup
-log_wlan_stats &
-ifconfig $wwan_if create up
-ifconfig $vpn_if create 192.168.209.2 192.168.209.1 netmask 255.255.255.252 up
+
+if [ -n "$wlan_if" ]; then
+    wlan_enabled='yes'
+    echo wlan enabled
+else
+    echo wlan disabled
+fi
+if [ -n "$wwan_if" ] &&
+   [ -n "$wwan_peer" ] ; then
+    wwan_enabled='yes'
+    echo wwan enabled
+else
+    echo wwan disabled
+fi
+if [ -n "$vpn_if" ] &&
+   [ -n "$vpn_server" ] &&
+   [ -n "$vpn_gateway" ] &&
+   [ -n "$ssh_auth_sock_file" ]; then
+    vpn_enabled='yes'
+    echo vpn enabled
+else
+    echo vpn disabled
+fi
+
+if [ "$wlan_enabled" = 'yes' ]; then
+    log_wlan_stats &
+fi
+
+if [ "$wwan_enabled" = 'yes' ]; then
+    ifconfig $wwan_if create up
+fi
+if [ "$vpn_enabled" = 'yes' ]; then
+    ifconfig $vpn_if create 192.168.209.2 192.168.209.1 netmask 255.255.255.252 up
+fi
 
 echo monitoring network connections
 
 while true
 do
     echo start loop
-    check_pppd
+    check_wwan
     check_routes
     sleep 1
 done

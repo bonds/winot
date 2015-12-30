@@ -1,11 +1,18 @@
-# required
+# unless otherwise noted, the settings are undefined by default and each section
+# must be completed filled out and defined or that feature will be disabled,
+# i.e. fill out all the wwan stuff if you want wwan to work
 
-vpn_gateway=""
-vpn_server=""
-wwan_peer=""
-ssh_auth_sock_file=""
+# wlan + vpn
 
-# optional
+#wlan_if="" # default: first wlan adapter found, if none wlan + vpn disabled
+#vpn_if="tun0"
+#vpn_gateway=""
+#vpn_server=""
+#ssh_auth_sock_file=""
 
-#wlan_if=""             # defaults to first wlan adapter found
+# wwan
+
+#wwan_if="ppp0"
+#wwan_peer="att"
+
 
