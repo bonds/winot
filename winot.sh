@@ -141,8 +141,8 @@ function check_wlan_signal {
     # the same BSSID, so only scan when the signal is consistently weak and the
     # connection is relatively idle
 
-    signal_strength=$(cat /tmp/$wlan_if-signal.log | sort -rn | head -1)
-    bandwidth=$(cat /tmp/$wlan_if-bandwidth.log | sort -rn | head -1)
+    signal_strength=$(cat /tmp/$wlan_if-signal.log | sort -rn | head -1 | tr -d '\n')
+    bandwidth=$(cat /tmp/$wlan_if-bandwidth.log | sort -rn | head -1 | tr -d '\n')
     signal_strength_count=$(wc -l /tmp/$wlan_if-signal.log | awk '{print $1}' | tr -d '\n')
     bandwidth_count=$(wc -l /tmp/$wlan_if-bandwidth.log | awk '{print $1}' | tr -d '\n')
     lock=/tmp/signal.lock
@@ -160,6 +160,7 @@ function check_wlan_signal {
 }
 
 function log_wlan_stats {
+
     while true
     do
         systat -w 100 -B ifstat 1 | grep iwm0 | awk '{print $7}' >> /tmp/$wlan_if-bandwidth.log
@@ -169,16 +170,22 @@ function log_wlan_stats {
         mv /tmp/$wlan_if-bandwidth.log.new /tmp/$wlan_if-bandwidth.log
         mv /tmp/$wlan_if-signal.log.new /tmp/$wlan_if-signal.log
     done
+
 }
 
 function cleanup {
 
     echo fn:cleanup
 
+    # kill related processes
+
     pkill -5 -f "$vpn_command"
-    ifconfig $vpn_if destroy
     pkill -f pppd
+
+    # clear out the interface config
+
     sleep 1 # give pppd a chance to exit and free up the wwan_if
+    ifconfig $vpn_if destroy
     ifconfig $wwan_if destroy
     ifconfig $wlan_if -nwid -wpakey -inet down
 
@@ -188,6 +195,8 @@ function cleanup {
     rmdir /tmp/wiconfig.lock > /dev/null 2>&1
     rmdir /tmp/vpn.lock > /dev/null 2>&1
     rmdir /tmp/signal.lock > /dev/null 2>&1
+
+    # delete the wlan logs used for roaming
 
     rm /tmp/$wlan_if-signal.log
     rm /tmp/$wlan_if-signal.log.new
