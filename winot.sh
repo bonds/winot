@@ -135,12 +135,20 @@ function check_routes {
 
     echo fn:check_routes
 
-    if check_wlan && check_vpn; then
-        echo good vpn
-        if [[ $(default_route_ip) != $vpn_server_private_ip ]]; then
-            echo updating default route to use vpn
-            for i in $(route -n show -inet | grep -o default); do route delete default; done
-            route add default $vpn_server_private_ip
+    if check_wlan; then
+        if check_vpn; then
+            echo good vpn
+            if [[ $(default_route_ip) != $vpn_server_private_ip ]]; then
+                echo updating default route to use vpn
+                for i in $(route -n show -inet | grep -o default); do route delete default; done
+                route add default $vpn_server_private_ip
+            fi
+        elif [ "$enable_wlan_without_vpn" = 'yes' ]; then
+            if [[ $(default_route_ip) != $(wlan_gateway) ]]; then
+                echo updating default route to use wlan without vpn protection \(insecure\)
+                for i in $(route -n show -inet | grep -o default); do route delete default; done
+                route add default $wlan_gateway
+            fi
         fi
     elif good_wwan_process && good_wwan_connection; then
         echo good wwan

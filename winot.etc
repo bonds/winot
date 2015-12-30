@@ -2,9 +2,13 @@
 # must be completed filled out and defined or that feature will be disabled,
 # i.e. fill out all the wwan stuff if you want wwan to work
 
-# wlan + vpn
+# wlan
 
 #wlan_if=""     # default: first wlan adapter found, if none wlan + vpn disabled
+#enable_wlan_without_vpn="yes" # default: no
+
+# vpn
+
 #vpn_if="tun0"  # default: first unused tunN adapter
 #vpn_server_public_ip=""
 #vpn_client_private_ip=""

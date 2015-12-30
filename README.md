@@ -9,6 +9,8 @@ connections at all times.
 * does NOT route traffic across the wifi except to connect to vpn, in other
   words, assumes your wifi network is untrusted, i.e. you work at the airport or
   at cafes on occasion
+* you can turn off the vpn requirement for wlan connections if you're feeling
+  brave and/or safe and/or you can live without it
 * notices when your wifi signal is weak, scans for a stronger BSSID, and
   connects to it
 
@@ -19,17 +21,22 @@ connections at all times.
 * OpenBSD 5.8 or later
 * a wwan adapter with a properly configured pppd peer configured, or a wifi
   adapter plus [wiconfig][1] is installed and configured with your wifi passwords
+* your wlan intreface is configured through DHCP, i.e. the IP and other info is
+  not statically configured in a hostname.if file
+
+## Optional
+
 * an SSH server with tunneling enabled
 * an SSH agent running with the credentials for accessing your SSH server loaded
 
-## Steps
+## Let's Install It Already
 
 1. ````git clone https://github.com/bonds/winot /tmp/winot````
 1. ````doas sh /tmp/winot/install.sh````
 1. edit /etc/winot and add your settings
 1. ````doas rcctl start winot````
 
-## Further Reading
+# Further Reading
 
 * [how to setup a layer 3 VPN over SSH][2]
 
