@@ -2,20 +2,64 @@
 
 # functions that do stuff
 
+function first_available_virtual_interface {
+
+    prefix=$1
+
+    ifconfig $prefix | grep flags | sed 's/$prefix\([0-9]\):.*/\1/g' > /tmp/winot-$prefix-used
+    jot 10 0 > /tmp/winot-$prefix-numbers
+    first_adapter=$(diff /tmp/winot-$prefix-used /tmp/winot-$prefix-numbers | grep '>' | cut -c 3- | sort -n | head -1)
+    rm /tmp/winot-$prefix-used /tmp/winot-$prefix-numbers
+
+    echo $prefix$first_adapter
+
+}
+
 function choose_wlan_adapter {
 
-    if [ -z "$wlan_if" ]; then
-        first_wlan_adapter=$(ifconfig wlan 2>/dev/null | grep flags | sed 's/\(^.*\):.*/\1/g' | head -n 1)
-        if [ -z "$first_wlan_adapter" ]; then
-            return
-        else
-            echo $first_wlan_adapter
-        fi
-    else
+    if [ -n "$wlan_if" ]; then
         echo $wlan_if
+    else
+        first_wlan_adapter=$(ifconfig wlan 2>/dev/null | grep flags | sed 's/\(^.*\):.*/\1/g' | head -n 1)
+        if [ -n "$first_wlan_adapter" ]; then
+            echo $first_wlan_adapter
+        else
+            return
+        fi
     fi
 
 }
+
+function choose_wwan_adapter {
+
+    if [ -n "$wwan_if" ]; then
+        echo $wwan_if
+    else
+        first_available=$(first_available_virtual_interface ppp)
+        if [ -n "$first_available" ]; then
+            echo $first_available
+        else
+            return
+        fi
+     fi
+
+}
+
+function choose_vpn_adapter {
+
+    if [ -n "$vpn_if" ]; then
+        echo $vpn_if
+    else
+        first_available=$(first_available_virtual_interface tun)
+        if [ -n "$first_available" ]; then
+            echo $first_available
+        else
+            return
+        fi
+    fi
+
+}
+
 
 function default_route_ip {
 
@@ -243,7 +287,9 @@ echo starting up
 
 . /etc/winot # load config
 wlan_if=$(choose_wlan_adapter)
-vpn_command="ssh -N -w 0:0 $vpn_server"
+wwan_if=$(choose_wwan_adapter)
+vpn_if=$(choose_vpn_adapter)
+vpn_command="ssh -N -w $(echo -n $vpn_if | tail -c 1):any $vpn_server"
 
 cleanup
 
@@ -280,6 +326,11 @@ fi
 if [ "$vpn_enabled" = 'yes' ]; then
     ifconfig $vpn_if create 192.168.209.2 192.168.209.1 netmask 255.255.255.252 up
 fi
+
+#echo first ppp: $(first_available_virtual_interface ppp)
+#echo first tun: $(first_available_virtual_interface tun)
+#echo vpn_if: $vpn_if
+#echo wwan_if: $wwan_if
 
 echo monitoring network connections
 

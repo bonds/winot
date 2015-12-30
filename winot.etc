@@ -4,15 +4,15 @@
 
 # wlan + vpn
 
-#wlan_if="" # default: first wlan adapter found, if none wlan + vpn disabled
-#vpn_if="tun0"
+#wlan_if=""     # default: first wlan adapter found, if none wlan + vpn disabled
+#vpn_if="tun0"  # default: first unused tunN adapter
 #vpn_gateway=""
 #vpn_server=""
 #ssh_auth_sock_file=""
 
 # wwan
 
-#wwan_if="ppp0"
+#wwan_if="ppp0" # default: first unused pppN adapter
 #wwan_peer="att"
 
 
