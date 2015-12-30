@@ -1,11 +1,21 @@
 #!/bin/sh
 
-. /etc/winot
-vpn_command="ssh -N -w 0:0 $vpn_server"
-vpn_if=tun0
-wwan_if=ppp0
-
 # functions that do stuff
+
+function choose_wlan_adapter {
+
+    if [ -z "$wlan_if" ]; then
+        first_wlan_adapter=$(ifconfig wlan 2>/dev/null | grep flags | sed 's/\(^.*\):.*/\1/g' | head -n 1)
+        if [ -z "$first_wlan_adapter" ]; then
+            return
+        else
+            echo $first_wlan_adapter
+        fi
+    else
+        echo $wlan_if
+    fi
+
+}
 
 function default_route_ip {
 
@@ -196,7 +206,7 @@ function cleanup {
     rmdir /tmp/vpn.lock > /dev/null 2>&1
     rmdir /tmp/signal.lock > /dev/null 2>&1
 
-    # delete the wlan logs used for roaming
+    # delete the logs used for roaming
 
     rm /tmp/$wlan_if-signal.log
     rm /tmp/$wlan_if-signal.log.new
@@ -215,6 +225,12 @@ fi
 trap "cleanup; exit" INT TERM QUIT HUP
 
 echo starting up
+
+. /etc/winot
+wlan_if=$(choose_wlan_adapter)
+vpn_command="ssh -N -w 0:0 $vpn_server"
+vpn_if=${vpn_if-"tun0"}
+wwan_if=${wwan_if-"ppp0"}
 
 cleanup
 log_wlan_stats &

@@ -1,5 +1,11 @@
+# required
+
 vpn_gateway=""
 vpn_server=""
-wlan_if=""
 wwan_peer=""
 ssh_auth_sock_file=""
+
+# optional
+
+#wlan_if=""             # defaults to first wlan adapter found
+
