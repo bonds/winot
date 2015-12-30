@@ -302,15 +302,17 @@ vpn_command="ssh -N -w $(echo -n $vpn_if | tail -c 1):any $vpn_server_public_ip"
 cleanup
 
 if [ -n "$wlan_if" ]; then
-    wlan_enabled='yes'
     echo wlan enabled
+    wlan_enabled='yes'
+    log_wlan_stats &
 else
     echo wlan disabled
 fi
 if [ -n "$wwan_if" ] &&
    [ -n "$wwan_peer" ] ; then
-    wwan_enabled='yes'
     echo wwan enabled
+    wwan_enabled='yes'
+    ifconfig $wwan_if create up
 else
     echo wwan disabled
 fi
@@ -319,21 +321,11 @@ if [ -n "$vpn_if" ] &&
    [ -n "$vpn_client_private_ip" ] &&
    [ -n "$vpn_server_private_ip" ] &&
    [ -n "$ssh_auth_sock_file" ]; then
-    vpn_enabled='yes'
     echo vpn enabled
+    vpn_enabled='yes'
+    ifconfig $vpn_if create $vpn_client_private_ip $vpn_server_private_ip netmask 255.255.255.252 up
 else
     echo vpn disabled
-fi
-
-if [ "$wlan_enabled" = 'yes' ]; then
-    log_wlan_stats &
-fi
-
-if [ "$wwan_enabled" = 'yes' ]; then
-    ifconfig $wwan_if create up
-fi
-if [ "$vpn_enabled" = 'yes' ]; then
-    ifconfig $vpn_if create $vpn_client_private_ip $vpn_server_private_ip netmask 255.255.255.252 up
 fi
 
 #echo first ppp: $(first_available_virtual_interface ppp)
