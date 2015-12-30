@@ -320,10 +320,11 @@ if [ -n "$vpn_if" ] &&
    [ -n "$vpn_server_public_ip" ] &&
    [ -n "$vpn_client_private_ip" ] &&
    [ -n "$vpn_server_private_ip" ] &&
+   [ -n "$vpn_private_netmask" ] &&
    [ -n "$ssh_auth_sock_file" ]; then
     echo vpn enabled
     vpn_enabled='yes'
-    ifconfig $vpn_if create $vpn_client_private_ip $vpn_server_private_ip netmask 255.255.255.252 up
+    ifconfig $vpn_if create $vpn_client_private_ip $vpn_server_private_ip netmask $vpn_private_netmask up
 else
     echo vpn disabled
 fi

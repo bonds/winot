@@ -13,6 +13,7 @@
 #vpn_server_public_ip=""
 #vpn_client_private_ip=""
 #vpn_server_private_ip=""
+#vpn_private_netmask=""
 #ssh_auth_sock_file=""
 
 # wwan
