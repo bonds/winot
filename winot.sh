@@ -1,7 +1,6 @@
 #!/bin/sh
 
 . /etc/winot
-echo "wlan_if is: $wlan_if"
 vpn_command="ssh -N -w 0:0 $vpn_server"
 vpn_if=tun0
 wwan_if=ppp0
@@ -146,12 +145,12 @@ function check_wlan_signal {
     bandwidth=$(cat /tmp/$wlan_if-bandwidth.log | sort -rn | head -1)
     signal_strength_count=$(wc -l /tmp/$wlan_if-signal.log | awk '{print $1}' | tr -d '\n')
     bandwidth_count=$(wc -l /tmp/$wlan_if-bandwidth.log | awk '{print $1}' | tr -d '\n')
+    lock=/tmp/signal.lock
 
     if [ $signal_strength -lt 20 ] &&
        [ $bandwidth -lt 1000 ] &&
        [ $signal_strength_count -eq 30 ] &&
        [ $bandwidth_count -eq 30 ]; then
-        lock=/tmp/signal.lock
         if mkdir $lock > /dev/null 2>&1; then
             echo looking for a stronger wireless signal
             (ifconfig $wlan_if scan > /dev/null 2>&1; sleep 60; rmdir $lock) &
