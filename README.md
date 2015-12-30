@@ -17,13 +17,10 @@ connections at all times.
 ## Requirements
 
 * OpenBSD 5.8 or later
-* a wwan adapter with a properly configured pppd peer configured
-* a wifi adapter
-* [wiconfig][1] is installed and configured with your wifi passwords
+* a wwan adapter with a properly configured pppd peer configured, or a wifi
+  adapter plus [wiconfig][1] is installed and configured with your wifi passwords
 * an SSH server with tunneling enabled
 * an SSH agent running with the credentials for accessing your SSH server loaded
-* your SSH tunneling setup uses the 192.168.209/24 network
-* tun0 and ppp0 are not in configured or in use by something else
 
 ## Steps
 

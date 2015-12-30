@@ -6,8 +6,9 @@
 
 #wlan_if=""     # default: first wlan adapter found, if none wlan + vpn disabled
 #vpn_if="tun0"  # default: first unused tunN adapter
-#vpn_gateway=""
-#vpn_server=""
+#vpn_server_public_ip=""
+#vpn_client_private_ip=""
+#vpn_server_private_ip=""
 #ssh_auth_sock_file=""
 
 # wwan

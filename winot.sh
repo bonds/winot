@@ -83,7 +83,7 @@ function check_vpn {
 
     counter=0
     while [ $counter -lt 3 ]; do
-        if ping -q -c 1 -w 1 $vpn_gateway > /dev/null 2>&1; then return 0; fi
+        if ping -q -c 1 -w 1 $vpn_server_private_ip > /dev/null 2>&1; then return 0; fi
         counter=`expr $counter + 1`
     done
 
@@ -97,8 +97,8 @@ function check_vpn {
 function connect_to_vpn {
 
     if mkdir /tmp/vpn.lock > /dev/null 2>&1; then
-        route delete $vpn_server
-        route add $vpn_server $(wlan_gateway)
+        route delete $vpn_server_public_ip
+        route add $vpn_server_public_ip $(wlan_gateway)
         ifconfig $vpn_if down
         ifconfig $vpn_if up
         pkill -5 -f "$vpn_command"
@@ -137,10 +137,10 @@ function check_routes {
 
     if check_wlan && check_vpn; then
         echo good vpn
-        if [[ $(default_route_ip) != $vpn_gateway ]]; then
+        if [[ $(default_route_ip) != $vpn_server_private_ip ]]; then
             echo updating default route to use vpn
             for i in $(route -n show -inet | grep -o default); do route delete default; done
-            route add default $vpn_gateway
+            route add default $vpn_server_private_ip
         fi
     elif good_wwan_process && good_wwan_connection; then
         echo good wwan
@@ -289,7 +289,7 @@ echo starting up
 wlan_if=$(choose_wlan_adapter)
 wwan_if=$(choose_wwan_adapter)
 vpn_if=$(choose_vpn_adapter)
-vpn_command="ssh -N -w $(echo -n $vpn_if | tail -c 1):any $vpn_server"
+vpn_command="ssh -N -w $(echo -n $vpn_if | tail -c 1):any $vpn_server_public_ip"
 
 cleanup
 
@@ -307,8 +307,9 @@ else
     echo wwan disabled
 fi
 if [ -n "$vpn_if" ] &&
-   [ -n "$vpn_server" ] &&
-   [ -n "$vpn_gateway" ] &&
+   [ -n "$vpn_server_public_ip" ] &&
+   [ -n "$vpn_client_private_ip" ] &&
+   [ -n "$vpn_server_private_ip" ] &&
    [ -n "$ssh_auth_sock_file" ]; then
     vpn_enabled='yes'
     echo vpn enabled
@@ -324,7 +325,7 @@ if [ "$wwan_enabled" = 'yes' ]; then
     ifconfig $wwan_if create up
 fi
 if [ "$vpn_enabled" = 'yes' ]; then
-    ifconfig $vpn_if create 192.168.209.2 192.168.209.1 netmask 255.255.255.252 up
+    ifconfig $vpn_if create $vpn_client_private_ip $vpn_server_private_ip netmask 255.255.255.252 up
 fi
 
 #echo first ppp: $(first_available_virtual_interface ppp)
