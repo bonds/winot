@@ -114,18 +114,7 @@ function check_wlan {
     if ifconfig $wlan_if | grep "status: active" > /dev/null 2>&1; then
         if ifconfig $wlan_if | grep "inet" > /dev/null 2>&1; then
             if ping -q -c 1 -w 1 $(wlan_gateway) > /dev/null 2>&1; then
-                signal_strength=$(ifconfig $wlan_if | grep bssid | sed -E "s/.*bssid.* (.*)%.*/\1/g" | tr -d '\n')
-                if [ $signal_strength -lt 20 ]; then
-                    lock=/tmp/signal.lock
-                    if mkdir $lock > /dev/null 2>&1; then
-                        echo looking for a stronger wireless signal
-                        # it appears that scanning leads OpenBSD to switch to
-                        # the higher powered BSSID if one is available with the
-                        # same SSID, but the scanning process itself interrupts
-                        # the current connection
-                        (ifconfig $wlan_if scan > /dev/null 2>&1; rmdir $lock) &
-                    fi
-                fi
+                check_wlan_signal
                 return 0
             fi
         else
@@ -143,6 +132,44 @@ function check_wlan {
         return 1
     fi
 
+}
+
+function check_wlan_signal {
+    # it appears that scanning leads OpenBSD to switch to the higher powered
+    # BSSID if one is available with the same SSID, but the scanning process
+    # interrupts and then renegotiates the current connection, regardless
+    # whether a new BSSID with a stronger signal was found or whether we kept
+    # the same BSSID, so only scan when the signal is consistently weak and the
+    # connection is relatively idle
+
+    signal_strength=$(cat /tmp/$wlan_if-signal.log | sort -rn | head -1)
+    bandwidth=$(cat /tmp/$wlan_if-bandwidth.log | sort -rn | head -1)
+    signal_strength_count=$(wc -l /tmp/$wlan_if-signal.log | awk '{print $1}' | tr -d '\n')
+    bandwidth_count=$(wc -l /tmp/$wlan_if-bandwidth.log | awk '{print $1}' | tr -d '\n')
+
+    if [ $signal_strength -lt 20 ] &&
+       [ $bandwidth -lt 1000 ] &&
+       [ $signal_strength_count -eq 30 ] &&
+       [ $bandwidth_count -eq 30 ]; then
+        lock=/tmp/signal.lock
+        if mkdir $lock > /dev/null 2>&1; then
+            echo looking for a stronger wireless signal
+            (ifconfig $wlan_if scan > /dev/null 2>&1; sleep 60; rmdir $lock) &
+        fi
+    fi
+
+}
+
+function log_wlan_stats {
+    while true
+    do
+        systat -w 100 -B ifstat 1 | grep iwm0 | awk '{print $7}' >> /tmp/$wlan_if-bandwidth.log
+        ifconfig $wlan_if | grep bssid | sed -E "s/.*bssid.* (.*)%.*/\1/g" >> /tmp/$wlan_if-signal.log
+        tail -n 30 /tmp/$wlan_if-bandwidth.log > /tmp/$wlan_if-bandwidth.log.new
+        tail -n 30 /tmp/$wlan_if-signal.log > /tmp/$wlan_if-signal.log.new
+        mv /tmp/$wlan_if-bandwidth.log.new /tmp/$wlan_if-bandwidth.log
+        mv /tmp/$wlan_if-signal.log.new /tmp/$wlan_if-signal.log
+    done
 }
 
 function cleanup {
@@ -163,6 +190,11 @@ function cleanup {
     rmdir /tmp/vpn.lock > /dev/null 2>&1
     rmdir /tmp/signal.lock > /dev/null 2>&1
 
+    rm /tmp/$wlan_if-signal.log
+    rm /tmp/$wlan_if-signal.log.new
+    rm /tmp/$wlan_if-bandwidth.log
+    rm /tmp/$wlan_if-bandwidth.log.new
+
 }
 
 # main
@@ -176,6 +208,8 @@ trap "cleanup; exit" INT TERM QUIT HUP
 
 echo starting up
 
+cleanup
+log_wlan_stats &
 ifconfig $wwan_if create up
 ifconfig $vpn_if create 192.168.209.2 192.168.209.1 netmask 255.255.255.252 up
 
