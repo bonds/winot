@@ -224,13 +224,13 @@ function check_wlan_signal {
     bandwidth_count=$(wc -l /tmp/$wlan_if-bandwidth.log | awk '{print $1}' | tr -d '\n')
     lock=/tmp/signal.lock
 
-    if [ $signal_strength -lt 20 ] &&
-       [ $bandwidth -lt 1000 ] &&
-       [ $signal_strength_count -eq 30 ] &&
-       [ $bandwidth_count -eq 30 ]; then
+    if [ $signal_strength -lt $weak_signal_means_less_than ] &&
+       [ $bandwidth -lt $idle_means_less_than_x_bytes ] &&
+       [ $signal_strength_count -eq $weak_signal_intervals_before_weak ] &&
+       [ $bandwidth_count -eq $idle_intervals_before_idle ]; then
         if mkdir $lock > /dev/null 2>&1; then
             echo looking for a stronger wireless signal
-            (ifconfig $wlan_if scan > /dev/null 2>&1; sleep 60; rmdir $lock) &
+            (ifconfig $wlan_if scan > /dev/null 2>&1; sleep $minimum_seconds_between_scans; rmdir $lock) &
         fi
     fi
 
@@ -240,10 +240,10 @@ function log_wlan_stats {
 
     while true
     do
-        systat -w 100 -B ifstat 1 | grep $wlan_if | awk '{print $7}' >> /tmp/$wlan_if-bandwidth.log
+        systat -w 100 -B ifstat $idle_interval_in_seconds | grep $wlan_if | awk '{print $7}' >> /tmp/$wlan_if-bandwidth.log
         ifconfig $wlan_if | grep bssid | sed -E "s/.*bssid.* (.*)%.*/\1/g" >> /tmp/$wlan_if-signal.log
-        tail -n 30 /tmp/$wlan_if-bandwidth.log > /tmp/$wlan_if-bandwidth.log.new
-        tail -n 30 /tmp/$wlan_if-signal.log > /tmp/$wlan_if-signal.log.new
+        tail -n $idle_intervals_before_idle /tmp/$wlan_if-bandwidth.log > /tmp/$wlan_if-bandwidth.log.new
+        tail -n $weak_signal_intervals_before_weak /tmp/$wlan_if-signal.log > /tmp/$wlan_if-signal.log.new
         mv /tmp/$wlan_if-bandwidth.log.new /tmp/$wlan_if-bandwidth.log
         mv /tmp/$wlan_if-signal.log.new /tmp/$wlan_if-signal.log
     done
@@ -298,6 +298,13 @@ wlan_if=$(choose_wlan_adapter)
 wwan_if=$(choose_wwan_adapter)
 vpn_if=$(choose_vpn_adapter)
 vpn_command="ssh -N -w $(echo -n $vpn_if | tail -c 1):any $vpn_server_public_ip"
+
+idle_means_less_than_x_bytes=1000
+idle_interval_in_seconds=1
+idle_intervals_before_idle=30
+weak_signal_means_less_than=20
+weak_signal_intervals_before_weak=30
+minimum_seconds_between_scans=60
 
 cleanup
 
