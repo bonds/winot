@@ -88,7 +88,7 @@ function check_vpn {
     done
 
     echo reconnecting to vpn
-    rmdir /tmp/vpn.lock
+    rmdir /tmp/vpn.lock > /dev/null 2>&1
     (connect_to_vpn) &
     return 1
 
@@ -135,6 +135,8 @@ function check_routes {
 
     echo fn:check_routes
 
+    try_wwan=no
+
     if check_wlan; then
         if check_vpn; then
             echo good vpn
@@ -149,22 +151,31 @@ function check_routes {
                 for i in $(route -n show -inet | grep -o default); do route delete default; done
                 route add default $wlan_gateway
             fi
-        fi
-    elif good_wwan_process && good_wwan_connection; then
-        echo good wwan
-        if [[ $(default_route_ip) != $(wwan_gateway) ]]; then
-            echo updating default route to use wwan
-            route -qn flush
-            for i in $(route -n show -inet | grep -o default); do route delete default; done
-            route add default $(wwan_gateway)
+        else
+            try_wwan=yes
         fi
     else
-        echo no internet connection found, local network access only
-        return 1
+        try_wwan=yes
+    fi
+    if [ "$try_wwan" = 'yes' ]; then
+        if good_wwan_process && good_wwan_connection; then
+            echo good wwan
+            if [[ $(default_route_ip) != $(wwan_gateway) ]]; then
+                echo updating default route to use wwan
+                route -qn flush
+                for i in $(route -n show -inet | grep -o default); do route delete default; done
+                route add default $(wwan_gateway)
+            fi
+        else
+            echo no internet connection found, local network access only
+            return 1
+        fi
     fi
 }
 
 function check_wwan {
+
+    echo fn:check_wwan
 
     if [ "$wwan_enabled" != 'yes' ]; then
         return 1
@@ -194,14 +205,14 @@ function check_wlan {
         else
             if mkdir /tmp/dhclient.lock > /dev/null 2>&1; then
                 echo getting IP for wireless network
-                (dhclient $wlan_if; rmdir /tmp/dhclient.lock) &
+                (dhclient $wlan_if > /dev/null 2>&1; rmdir /tmp/dhclient.lock) &
             fi
             return 1
         fi
     else
         if mkdir /tmp/wiconfig.lock > /dev/null 2>&1; then
             echo connecting to wireless network
-            (/usr/local/bin/wiconfig -qs $wlan_if; rmdir /tmp/wiconfig.lock) &
+            (/usr/local/bin/wiconfig -qs $wlan_if > /dev/null 2>&1; rmdir /tmp/wiconfig.lock) &
         fi
         return 1
     fi
