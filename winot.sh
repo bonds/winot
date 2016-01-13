@@ -2,6 +2,11 @@
 
 # functions that do stuff
 
+function log {
+    #echo $(date "+%Y%m%d%H%M%S") $@
+    echo $(date) $@
+}
+
 function first_available_virtual_interface {
 
     prefix=$1
@@ -75,7 +80,7 @@ function wwan_gateway {
 
 function check_vpn {
 
-    echo fn:check_vpn
+    log fn:check_vpn
 
     if [ "$vpn_enabled" != 'yes' ]; then
         return 1
@@ -133,13 +138,13 @@ function good_wwan_process {
 
 function check_routes {
 
-    echo fn:check_routes
+    log fn:check_routes
 
     try_wwan=no
 
     if check_wlan; then
         if check_vpn; then
-            echo good vpn
+            log good vpn
             if [[ $(default_route_ip) != $vpn_server_private_ip ]]; then
                 echo updating default route to use vpn
                 for i in $(route -n show -inet | grep -o default); do route delete default; done
@@ -159,7 +164,7 @@ function check_routes {
     fi
     if [ "$try_wwan" = 'yes' ]; then
         if good_wwan_process && good_wwan_connection; then
-            echo good wwan
+            log good wwan
             if [[ $(default_route_ip) != $(wwan_gateway) ]]; then
                 echo updating default route to use wwan
                 route -qn flush
@@ -175,7 +180,7 @@ function check_routes {
 
 function check_wwan {
 
-    echo fn:check_wwan
+    log fn:check_wwan
 
     if [ "$wwan_enabled" != 'yes' ]; then
         return 1
@@ -190,7 +195,7 @@ function check_wwan {
 
 function check_wlan {
 
-    echo fn:check_wlan
+    log fn:check_wlan
 
     if [ "$wlan_enabled" != 'yes' ]; then
         return 1
@@ -227,7 +232,7 @@ function check_wlan_signal {
     # the same BSSID, so only scan when the signal is consistently weak and the
     # connection is relatively idle
 
-    echo fn:check_wlan_signal
+    log fn:check_wlan_signal
 
     signal_strength=$(cat /tmp/$wlan_if-signal.log | sort -rn | head -1 | tr -d '\n')
     bandwidth=$(cat /tmp/$wlan_if-bandwidth.log | sort -rn | head -1 | tr -d '\n')
@@ -263,7 +268,7 @@ function log_wlan_stats {
 
 function cleanup {
 
-    echo fn:cleanup
+    log fn:cleanup
 
     # kill related processes
 
@@ -305,6 +310,8 @@ trap "cleanup; exit" INT TERM QUIT HUP
 echo starting up
 
 . /etc/winot # load config
+exec > /var/log/winot 2>&1 # log output to file
+
 wlan_if=$(choose_wlan_adapter)
 wwan_if=$(choose_wwan_adapter)
 vpn_if=$(choose_vpn_adapter)
@@ -356,7 +363,7 @@ echo monitoring network connections
 
 while true
 do
-    echo start loop
+    log start loop
     check_wwan
     check_routes
     sleep 1
