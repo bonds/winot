@@ -80,35 +80,44 @@ function wwan_gateway {
 
 function check_vpn {
 
+    (
     log fn:check_vpn
+    lock=/tmp/winot-vpn-lock
+    status=/tmp/winot-vpn-ok
 
-    if [ "$vpn_enabled" != 'yes' ]; then
-        return 1
+    if mkdir $lock > /dev/null 2>&1; then
+        if [ "$vpn_enabled" != 'yes' ]; then
+            rm $status > /dev/null 2>&1
+            rmdir $lock
+        else
+            counter=0
+            ping_ok='no'
+            while [ $counter -lt 3 ]; do
+                if ping -q -c 1 -w 1 $vpn_server_private_ip > /dev/null 2>&1; then
+                    ping_ok='yes'
+                    counter=99
+                fi
+                counter=`expr $counter + 1`
+            done
+
+            if [ "$ping_ok" = 'yes' ]; then
+                touch $status
+                rmdir $lock
+            else
+                rm $status > /dev/null 2>&1
+                log reconnecting to vpn
+                route delete $vpn_server_public_ip
+                route add $vpn_server_public_ip $(wlan_gateway)
+                ifconfig $vpn_if down
+                ifconfig $vpn_if up
+                pkill -5 -f "$vpn_command"
+                SSH_AUTH_SOCK=$(ssh_auth_sock) $vpn_command &
+                sleep 5
+                rmdir $lock
+            fi
+        fi
     fi
-
-    counter=0
-    while [ $counter -lt 3 ]; do
-        if ping -q -c 1 -w 1 $vpn_server_private_ip > /dev/null 2>&1; then return 0; fi
-        counter=`expr $counter + 1`
-    done
-
-    echo reconnecting to vpn
-    rmdir /tmp/vpn.lock > /dev/null 2>&1
-    (connect_to_vpn) &
-    return 1
-
-}
-
-function connect_to_vpn {
-
-    if mkdir /tmp/vpn.lock > /dev/null 2>&1; then
-        route delete $vpn_server_public_ip
-        route add $vpn_server_public_ip $(wlan_gateway)
-        ifconfig $vpn_if down
-        ifconfig $vpn_if up
-        pkill -5 -f "$vpn_command"
-        SSH_AUTH_SOCK=$(ssh_auth_sock) $vpn_command &
-    fi
+    ) &
 
 }
 
@@ -138,93 +147,116 @@ function good_wwan_process {
 
 function check_routes {
 
+    (
     log fn:check_routes
-
+    lock=/tmp/winot-routes-lock
     try_wwan=no
 
-    if check_wlan; then
-        if check_vpn; then
-            log good vpn
-            if [[ $(default_route_ip) != $vpn_server_private_ip ]]; then
-                echo updating default route to use vpn
-                for i in $(route -n show -inet | grep -o default); do route delete default; done
-                route add default $vpn_server_private_ip
-            fi
-        elif [ "$enable_wlan_without_vpn" = 'yes' ]; then
-            if [[ $(default_route_ip) != $(wlan_gateway) ]]; then
-                echo updating default route to use wlan without vpn protection \(insecure\)
-                for i in $(route -n show -inet | grep -o default); do route delete default; done
-                route add default $wlan_gateway
+    if mkdir $lock > /dev/null 2>&1; then
+        if [ -f /tmp/winot-wlan-ok ]; then
+            if [ -f /tmp/winot-vpn-ok ]; then
+                if [[ $(default_route_ip) != $vpn_server_private_ip ]]; then
+                    log updating default route to use vpn
+                    for i in $(route -n show -inet | grep -o default); do route delete default; done
+                    route add default $vpn_server_private_ip
+                fi
+            elif [ "$enable_wlan_without_vpn" = 'yes' ]; then
+                if [[ $(default_route_ip) != $(wlan_gateway) ]]; then
+                    log updating default route to use wlan without vpn protection \(insecure\)
+                    for i in $(route -n show -inet | grep -o default); do route delete default; done
+                    route add default $wlan_gateway
+                fi
+            else
+                try_wwan=yes
             fi
         else
             try_wwan=yes
         fi
-    else
-        try_wwan=yes
-    fi
-    if [ "$try_wwan" = 'yes' ]; then
-        if good_wwan_process && good_wwan_connection; then
-            log good wwan
-            if [[ $(default_route_ip) != $(wwan_gateway) ]]; then
-                echo updating default route to use wwan
-                route -qn flush
-                for i in $(route -n show -inet | grep -o default); do route delete default; done
-                route add default $(wwan_gateway)
+
+        if [ "$try_wwan" = 'yes' ]; then
+            if [ -f /tmp/winot-wwan-ok ]; then
+                if [[ $(default_route_ip) != $(wwan_gateway) ]]; then
+                    log updating default route to use wwan
+                    route -qn flush
+                    for i in $(route -n show -inet | grep -o default); do route delete default; done
+                    route add default $(wwan_gateway)
+                fi
+            else
+                log no internet connection found, local network access only
             fi
-        else
-            echo no internet connection found, local network access only
-            return 1
         fi
+        rmdir $lock
     fi
+    ) &
 }
 
 function check_wwan {
 
+    (
     log fn:check_wwan
+    lock=/tmp/winot-wwan-lock
+    status=/tmp/winot-wwan-ok
 
-    if [ "$wwan_enabled" != 'yes' ]; then
-        return 1
+    if mkdir $lock > /dev/null 2>&1; then
+        if [ "$wwan_enabled" != 'yes' ]; then
+            rm $status > /dev/null 2>&1
+            rmdir $lock
+        elif good_wwan_process && good_wwan_connection; then
+            touch $status
+            rmdir $lock
+        else
+            rm $status > /dev/null 2>&1
+            /usr/sbin/pppd call $wwan_peer
+            sleep 5
+            rmdir $lock
+        fi
     fi
-
-    if ! pgrep pppd > /dev/null 2>&1; then
-        echo restarting pppd
-        /usr/sbin/pppd call $wwan_peer
-    fi
-
+    ) &
 }
+
 
 function check_wlan {
 
+    (
     log fn:check_wlan
+    lock=/tmp/winot-wlan-lock
+    status=/tmp/winot-wlan-ok
 
-    if [ "$wlan_enabled" != 'yes' ]; then
-        return 1
-    fi
-
-    if ifconfig $wlan_if | grep "status: active" > /dev/null 2>&1; then
-        if ifconfig $wlan_if | grep "inet" > /dev/null 2>&1; then
-            if ping -q -c 1 -w 1 $(wlan_gateway) > /dev/null 2>&1; then
-                check_wlan_signal
-                return 0
+    if mkdir $lock > /dev/null 2>&1; then
+        if [ "$wlan_enabled" != 'yes' ]; then
+            rm $status > /dev/null 2>&1
+            rmdir $lock
+        elif ifconfig $wlan_if | grep "status: active" > /dev/null 2>&1; then
+            if ifconfig $wlan_if | grep "inet" > /dev/null 2>&1; then
+                if ping -q -c 1 -w 1 $(wlan_gateway) > /dev/null 2>&1; then
+                    if ! weak_signal; then
+                        touch $status
+                        rmdir $lock
+                    else
+                        echo looking for a stronger wireless signal
+                        ifconfig $wlan_if scan > /dev/null 2>&1
+                        #sleep $minimum_seconds_between_scans
+                        rmdir $lock
+                    fi
+                fi
+            else
+                rm $status > /dev/null 2>&1
+                log 'getting IP for wireless network'
+                dhclient $wlan_if > /dev/null 2>&1
+                rmdir $lock
             fi
         else
-            if mkdir /tmp/dhclient.lock > /dev/null 2>&1; then
-                echo getting IP for wireless network
-                (dhclient $wlan_if > /dev/null 2>&1; rmdir /tmp/dhclient.lock) &
-            fi
-            return 1
+            rm $status > /dev/null 2>&1
+            log connecting to wireless network
+            /usr/local/bin/wiconfig -qs $wlan_if > /dev/null 2>&1
+            rmdir $lock
         fi
-    else
-        if mkdir /tmp/wiconfig.lock > /dev/null 2>&1; then
-            echo connecting to wireless network
-            (/usr/local/bin/wiconfig -qs $wlan_if > /dev/null 2>&1; rmdir /tmp/wiconfig.lock) &
-        fi
-        return 1
     fi
+    ) &
 
 }
 
-function check_wlan_signal {
+function weak_signal {
     # it appears that scanning leads OpenBSD to switch to the higher powered
     # BSSID if one is available with the same SSID, but the scanning process
     # interrupts and then renegotiates the current connection, regardless
@@ -232,22 +264,34 @@ function check_wlan_signal {
     # the same BSSID, so only scan when the signal is consistently weak and the
     # connection is relatively idle
 
-    log fn:check_wlan_signal
+    log fn:weak_signal
 
     signal_strength=$(cat /tmp/$wlan_if-signal.log | sort -rn | head -1 | tr -d '\n')
     bandwidth=$(cat /tmp/$wlan_if-bandwidth.log | sort -rn | head -1 | tr -d '\n')
     signal_strength_count=$(wc -l /tmp/$wlan_if-signal.log | awk '{print $1}' | tr -d '\n')
     bandwidth_count=$(wc -l /tmp/$wlan_if-bandwidth.log | awk '{print $1}' | tr -d '\n')
-    lock=/tmp/signal.lock
 
-    if [ $signal_strength -lt $weak_signal_means_less_than ] &&
+    #echo "ss: $signal_strength"
+    #echo "bw: $bandwidth"
+    #echo "ssc: $signal_strength_count"
+    #echo "bc: $bandwidth_count"
+
+    #echo "wsml: $weak_signal_means_less_than"
+    #echo "imlt: $idle_means_less_than_x_bytes"
+    #echo "wsibw: $weak_signal_intervals_before_weak"
+    #echo "itbi: $idle_intervals_before_idle"
+
+    if [ -n "$signal_strength" ] &&
+       [ -n "$bandwidth" ] &&
+       [ -n "$signal_strength_count" ] &&
+       [ -n "$bandwidth_count" ] &&
+       [ $signal_strength -lt $weak_signal_means_less_than ] &&
        [ $bandwidth -lt $idle_means_less_than_x_bytes ] &&
        [ $signal_strength_count -eq $weak_signal_intervals_before_weak ] &&
        [ $bandwidth_count -eq $idle_intervals_before_idle ]; then
-        if mkdir $lock > /dev/null 2>&1; then
-            echo looking for a stronger wireless signal
-            (ifconfig $wlan_if scan > /dev/null 2>&1; sleep $minimum_seconds_between_scans; rmdir $lock) &
-        fi
+        return 0
+    else
+        return 1
     fi
 
 }
@@ -272,29 +316,36 @@ function cleanup {
 
     # kill related processes
 
-    pkill -5 -f "$vpn_command"
-    pkill -f pppd
+    pkill -5 -f "$vpn_command" > /dev/null 2>&1
+    pkill -f pppd > /dev/null 2>&1
 
     # clear out the interface config
 
     sleep 1 # give pppd a chance to exit and free up the wwan_if
-    ifconfig $vpn_if destroy
-    ifconfig $wwan_if destroy
-    ifconfig $wlan_if -nwid -wpakey -inet down
+    ifconfig $vpn_if destroy > /dev/null 2>&1
+    ifconfig $wwan_if destroy > /dev/null 2>&1
+    ifconfig $wlan_if -nwid -wpakey -inet down > /dev/null 2>&1
+
+    # delete the status files
+
+    rm /tmp/winot-wwan-ok > /dev/null 2>&1
+    rm /tmp/winot-wlan-ok > /dev/null 2>&1
+    rm /tmp/winot-vpn-ok > /dev/null 2>&1
 
     # delete directories used as locks
 
-    rmdir /tmp/dhclient.lock > /dev/null 2>&1
-    rmdir /tmp/wiconfig.lock > /dev/null 2>&1
-    rmdir /tmp/vpn.lock > /dev/null 2>&1
     rmdir /tmp/signal.lock > /dev/null 2>&1
+    rmdir /tmp/winot-wwan-lock > /dev/null 2>&1
+    rmdir /tmp/winot-wlan-lock > /dev/null 2>&1
+    rmdir /tmp/winot-vpn-lock > /dev/null 2>&1
+    rmdir /tmp/winot-routes-lock > /dev/null 2>&1
 
     # delete the logs used for roaming
 
-    rm /tmp/$wlan_if-signal.log
-    rm /tmp/$wlan_if-signal.log.new
-    rm /tmp/$wlan_if-bandwidth.log
-    rm /tmp/$wlan_if-bandwidth.log.new
+    rm /tmp/$wlan_if-signal.log > /dev/null 2>&1
+    rm /tmp/$wlan_if-signal.log.new > /dev/null 2>&1
+    rm /tmp/$wlan_if-bandwidth.log > /dev/null 2>&1
+    rm /tmp/$wlan_if-bandwidth.log.new > /dev/null 2>&1
 
 }
 
@@ -365,6 +416,8 @@ while true
 do
     log start loop
     check_wwan
+    check_wlan
+    check_vpn
     check_routes
     sleep 1
 done
