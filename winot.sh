@@ -164,7 +164,7 @@ function check_routes {
                 if [[ $(default_route_ip) != $(wlan_gateway) ]]; then
                     log updating default route to use wlan without vpn protection \(insecure\)
                     for i in $(route -n show -inet | grep -o default); do route delete default; done
-                    route add default $wlan_gateway
+                    route add default $(wlan_gateway)
                 fi
             else
                 try_wwan=yes
@@ -235,7 +235,7 @@ function check_wlan {
                     else
                         echo looking for a stronger wireless signal
                         ifconfig $wlan_if scan > /dev/null 2>&1
-                        #sleep $minimum_seconds_between_scans
+                        #sleep $MINIMUM_SECONDS_BETWEEN_SCANS
                         rmdir $lock
                     fi
                 fi
@@ -276,19 +276,19 @@ function weak_signal {
     #echo "ssc: $signal_strength_count"
     #echo "bc: $bandwidth_count"
 
-    #echo "wsml: $weak_signal_means_less_than"
-    #echo "imlt: $idle_means_less_than_x_bytes"
-    #echo "wsibw: $weak_signal_intervals_before_weak"
-    #echo "itbi: $idle_intervals_before_idle"
+    #echo "wsml: $WEAK_SIGNAL_MEANS_LESS_THAN"
+    #echo "imlt: $IDLE_MEANS_LESS_THAN_X_BYTES"
+    #echo "wsibw: $WEAK_SIGNAL_INTERVALS_BEFORE_WEAK"
+    #echo "itbi: $IDLE_INTERVALS_BEFORE_IDLE"
 
     if [ -n "$signal_strength" ] &&
        [ -n "$bandwidth" ] &&
        [ -n "$signal_strength_count" ] &&
        [ -n "$bandwidth_count" ] &&
-       [ $signal_strength -lt $weak_signal_means_less_than ] &&
-       [ $bandwidth -lt $idle_means_less_than_x_bytes ] &&
-       [ $signal_strength_count -eq $weak_signal_intervals_before_weak ] &&
-       [ $bandwidth_count -eq $idle_intervals_before_idle ]; then
+       [ $signal_strength -lt $WEAK_SIGNAL_MEANS_LESS_THAN ] &&
+       [ $bandwidth -lt $IDLE_MEANS_LESS_THAN_X_BYTES ] &&
+       [ $signal_strength_count -eq $WEAK_SIGNAL_INTERVALS_BEFORE_WEAK ] &&
+       [ $bandwidth_count -eq $IDLE_INTERVALS_BEFORE_IDLE ]; then
         return 0
     else
         return 1
@@ -300,13 +300,27 @@ function log_wlan_stats {
 
     while true
     do
-        systat -w 100 -B ifstat $idle_interval_in_seconds | grep $wlan_if | awk '{print $7}' >> /tmp/$wlan_if-bandwidth.log
+        systat -w 100 -B ifstat $IDLE_INTERVAL_IN_SECONDS | grep $wlan_if | awk '{print $7}' >> /tmp/$wlan_if-bandwidth.log
         ifconfig $wlan_if | grep bssid | sed -E "s/.*bssid.* (.*)%.*/\1/g" >> /tmp/$wlan_if-signal.log
-        tail -n $idle_intervals_before_idle /tmp/$wlan_if-bandwidth.log > /tmp/$wlan_if-bandwidth.log.new
-        tail -n $weak_signal_intervals_before_weak /tmp/$wlan_if-signal.log > /tmp/$wlan_if-signal.log.new
+        tail -n $IDLE_INTERVALS_BEFORE_IDLE /tmp/$wlan_if-bandwidth.log > /tmp/$wlan_if-bandwidth.log.new
+        tail -n $WEAK_SIGNAL_INTERVALS_BEFORE_WEAK /tmp/$wlan_if-signal.log > /tmp/$wlan_if-signal.log.new
         mv /tmp/$wlan_if-bandwidth.log.new /tmp/$wlan_if-bandwidth.log
         mv /tmp/$wlan_if-signal.log.new /tmp/$wlan_if-signal.log
     done
+
+}
+
+function cleanup_stale_locks {
+    # delete locks that are still there after we resume from sleep
+
+    seconds_since_last_loop=$(dc -e "$(date +%s) $last_loop - n")
+    if [ $seconds_since_last_loop -gt 30 ]; then
+        rmdir /tmp/winot-wwan-lock > /dev/null 2>&1
+        rmdir /tmp/winot-wlan-lock > /dev/null 2>&1
+        rmdir /tmp/winot-wlan-signal-lock > /dev/null 2>&1
+        rmdir /tmp/winot-vpn-lock > /dev/null 2>&1
+        rmdir /tmp/winot-routes-lock > /dev/null 2>&1
+    fi
 
 }
 
@@ -334,9 +348,9 @@ function cleanup {
 
     # delete directories used as locks
 
-    rmdir /tmp/signal.lock > /dev/null 2>&1
     rmdir /tmp/winot-wwan-lock > /dev/null 2>&1
     rmdir /tmp/winot-wlan-lock > /dev/null 2>&1
+    rmdir /tmp/winot-wlan-signal-lock > /dev/null 2>&1
     rmdir /tmp/winot-vpn-lock > /dev/null 2>&1
     rmdir /tmp/winot-routes-lock > /dev/null 2>&1
 
@@ -363,17 +377,17 @@ echo starting up
 . /etc/winot # load config
 exec > /var/log/winot 2>&1 # log output to file
 
+IDLE_MEANS_LESS_THAN_X_BYTES=1000
+IDLE_INTERVAL_IN_SECONDS=1
+IDLE_INTERVALS_BEFORE_IDLE=30
+WEAK_SIGNAL_MEANS_LESS_THAN=20
+WEAK_SIGNAL_INTERVALS_BEFORE_WEAK=30
+MINIMUM_SECONDS_BETWEEN_SCANS=60
+
 wlan_if=$(choose_wlan_adapter)
 wwan_if=$(choose_wwan_adapter)
 vpn_if=$(choose_vpn_adapter)
 vpn_command="ssh -N -w $(echo -n $vpn_if | tail -c 1):any $vpn_server_public_ip"
-
-idle_means_less_than_x_bytes=1000
-idle_interval_in_seconds=1
-idle_intervals_before_idle=30
-weak_signal_means_less_than=20
-weak_signal_intervals_before_weak=30
-minimum_seconds_between_scans=60
 
 cleanup
 
@@ -415,9 +429,11 @@ echo monitoring network connections
 while true
 do
     log start loop
+    cleanup_stale_locks
     check_wwan
     check_wlan
     check_vpn
     check_routes
+    last_loop=$(date +%s)
     sleep 1
 done
