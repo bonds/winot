@@ -137,7 +137,7 @@ function check_vpn {
                 ifconfig $vpn_if up
                 pkill -5 -f "$vpn_command"
                 SSH_AUTH_SOCK=$(ssh_auth_sock) $vpn_command &
-                sleep 5
+                sleep $WAIT_X_SECONDS_FOR_VPN_TO_CONNECT
             fi
         fi
         release_lock $name
@@ -229,7 +229,7 @@ function check_wwan {
         else
             set_status_bad $name
             /usr/sbin/pppd call $wwan_peer
-            sleep 5
+            sleep $WAIT_X_SECONDS_FOR_WWAN_TO_CONNECT
         fi
         release_lock $name
     fi
@@ -249,12 +249,15 @@ function check_wlan {
         elif ifconfig $wlan_if | grep "status: active" > /dev/null 2>&1; then
             if ifconfig $wlan_if | grep "inet" > /dev/null 2>&1; then
                 if ping -q -c 1 -w 1 $(wlan_gateway) > /dev/null 2>&1; then
+                    set_status_ok $name
                     if ! check_wlan_signal; then
-                        set_status_ok $name
-                    else
-                        echo looking for a stronger wireless signal
-                        ifconfig $wlan_if scan > /dev/null 2>&1
-                        #sleep $MINIMUM_SECONDS_BETWEEN_SCANS
+                        seconds_since_last_scan=$(dc -e "$(date +%s) $last_scan - n")
+                        if [ $seconds_since_last_scan -gt $MINIMUM_SECONDS_BETWEEN_SCANS ]; then
+                            echo looking for a stronger wireless signal
+                            last_scan=$(date +%s)
+                            set_status_bad $name
+                            ifconfig $wlan_if scan > /dev/null 2>&1
+                        fi
                     fi
                 fi
             else
@@ -265,7 +268,9 @@ function check_wlan {
         else
             set_status_bad $name
             log connecting to wireless network
+            last_scan=$(date +%s) # treat new connection as a signal scan too
             /usr/local/bin/wiconfig -qs $wlan_if > /dev/null 2>&1
+            sleep $WAIT_X_SECONDS_FOR_WLAN_TO_CONNECT
         fi
         release_lock $name
     fi
@@ -306,9 +311,9 @@ function check_wlan_signal {
        [ $bandwidth -lt $IDLE_MEANS_LESS_THAN_X_BYTES ] &&
        [ $signal_strength_count -eq $WEAK_SIGNAL_INTERVALS_BEFORE_WEAK ] &&
        [ $bandwidth_count -eq $IDLE_INTERVALS_BEFORE_IDLE ]; then
-        return 0
+        return 1 # the signal is weak
     else
-        return 1
+        return 0 # the signal is strong or we don't have enough info
     fi
 
 }
@@ -401,6 +406,9 @@ IDLE_INTERVALS_BEFORE_IDLE=30
 WEAK_SIGNAL_MEANS_LESS_THAN=20
 WEAK_SIGNAL_INTERVALS_BEFORE_WEAK=30
 MINIMUM_SECONDS_BETWEEN_SCANS=60
+WAIT_X_SECONDS_FOR_WLAN_TO_CONNECT=10
+WAIT_X_SECONDS_FOR_WWAN_TO_CONNECT=10
+WAIT_X_SECONDS_FOR_VPN_TO_CONNECT=10
 
 wlan_if=$(choose_wlan_adapter)
 wwan_if=$(choose_wwan_adapter)
