@@ -131,8 +131,6 @@ function check_vpn {
             else
                 set_status_bad $name
                 log reconnecting to vpn
-                route delete $vpn_server_public_ip
-                route add $vpn_server_public_ip $(wlan_gateway)
                 ifconfig $vpn_if down
                 ifconfig $vpn_if up
                 pkill -5 -f "$vpn_command"
@@ -179,6 +177,8 @@ function check_routes {
 
     if get_lock $name; then
         if [ -f /tmp/winot-wlan-ok ]; then
+            route delete $vpn_server_public_ip
+            route add $vpn_server_public_ip $(wlan_gateway)
             if [ -f /tmp/winot-vpn-ok ]; then
                 if [[ $(default_route_ip) != $vpn_server_private_ip ]]; then
                     log updating default route to use vpn
@@ -195,6 +195,7 @@ function check_routes {
                 try_wwan=yes
             fi
         else
+            route delete $vpn_server_public_ip
             try_wwan=yes
         fi
 
@@ -253,7 +254,7 @@ function check_wlan {
                     if ! check_wlan_signal; then
                         seconds_since_last_scan=$(dc -e "$(date +%s) $last_scan - n")
                         if [ $seconds_since_last_scan -gt $MINIMUM_SECONDS_BETWEEN_SCANS ]; then
-                            echo looking for a stronger wireless signal
+                            log looking for a stronger wireless signal
                             last_scan=$(date +%s)
                             set_status_bad $name
                             ifconfig $wlan_if scan > /dev/null 2>&1
@@ -397,6 +398,7 @@ trap "cleanup; exit" INT TERM QUIT HUP
 
 echo starting up
 
+renice -n 20 $$ # run at low priority
 . /etc/winot # load config
 exec > /var/log/winot 2>&1 # log output to file
 
