@@ -100,6 +100,12 @@ function default_route_ip {
 
 }
 
+function vpn_gateway {
+
+    route -n show -inet | grep $vpn_server_public_ip | head -n 1 | awk '{ print $2 }' | tr -d '\n'
+
+}
+
 function wwan_gateway {
 
     route -n show -inet | grep $wwan_if | grep UHl | head -n 1 | awk '{ print $2 }' | tr -d '\n'
@@ -177,8 +183,13 @@ function check_routes {
 
     if get_lock $name; then
         if [ -f /tmp/winot-wlan-ok ]; then
-            route delete $vpn_server_public_ip
-            route add $vpn_server_public_ip $(wlan_gateway)
+            log "vpngw: $(vpn_gateway)"
+            log "vpnip: $vpn_server_public_ip"
+            log "wlangw: $(wlan_gateway)"
+            if [[ $(vpn_gateway) != $(wlan_gateway) ]]; then
+                route delete $vpn_server_public_ip $(wlan_gateway)
+                route add $vpn_server_public_ip $(wlan_gateway)
+            fi
             if [ -f /tmp/winot-vpn-ok ]; then
                 if [[ $(default_route_ip) != $vpn_server_private_ip ]]; then
                     log updating default route to use vpn
