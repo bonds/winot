@@ -1,0 +1,125 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -Wall -Werror #-}
+
+module World where
+
+import qualified Control.Concurrent.STM as S
+import qualified Data.HashMap.Lazy as H
+import qualified Data.Text as T
+import qualified GHC.Int as G
+import qualified Text.Toml as O
+import qualified Text.Toml.Types as O
+
+default (T.Text)
+
+data World = World { config :: O.Table
+                   , checkVPNLock :: S.TMVar ()
+                   , checkWLANLock :: S.TMVar ()
+                   , checkWWANLock :: S.TMVar ()
+                   , chooseRouteLock :: S.TMVar ()
+                   , connectVPNLock :: S.TMVar ()
+                   , connectWLANLock :: S.TMVar ()
+                   , connectWWANLock :: S.TMVar ()
+                   , interfaceList :: S.TVar [IFInfo]
+                   , interfaceListLock :: S.TMVar ()
+                   , loopTimes :: [G.Int64]
+                   , processList :: S.TVar T.Text
+                   , processListLock :: S.TMVar ()
+                   , routeList :: S.TVar T.Text
+                   , routeListLock :: S.TMVar ()
+                   , wlanSignalStrengthLog :: S.TVar [Int]
+                   , wlanBandwidthLog :: S.TVar [Int]
+                   , wlanList :: S.TVar [APInfo]
+                   , lastScan :: S.TVar G.Int64
+                   , vpnIf :: Maybe T.Text
+                   , vpnOK :: S.TVar Bool
+                   , wlanIf :: Maybe T.Text
+                   , wlanOK :: S.TVar Bool
+                   , wwanIf :: Maybe T.Text
+                   , wwanOK :: S.TVar Bool
+                   }
+
+instance Show World where
+    show w = show [show (config w), show (loopTimes w)]
+
+data IFInfo = IFInfo { name :: T.Text
+                     , detail :: T.Text
+                     } deriving (Show, Eq)
+
+data APInfo = APInfo { ssid :: T.Text
+                     , chan :: T.Text
+                     , bssid :: T.Text
+                     , strength :: T.Text
+                     , speed :: T.Text
+                     , options :: [T.Text]
+                     , raw :: T.Text
+                     } deriving (Show, Eq)
+
+
+initialWorld :: IO (Maybe World)
+initialWorld = do
+    rt <- S.atomically $ S.newTVar T.empty
+    it <- S.atomically $ S.newTVar []
+    pt <- S.atomically $ S.newTVar T.empty
+    vk <- S.atomically $ S.newTVar False
+    wlok <- S.atomically $ S.newTVar False
+    wwok <- S.atomically $ S.newTVar False
+    ls <- S.atomically $ S.newTVar 0
+    bwl <- S.atomically $ S.newTVar []
+    ssl <- S.atomically $ S.newTVar []
+    wll <- S.atomically $ S.newTVar []
+    l1 <- S.atomically S.newEmptyTMVar
+    l2 <- S.atomically S.newEmptyTMVar
+    l3 <- S.atomically S.newEmptyTMVar
+    l4 <- S.atomically S.newEmptyTMVar
+    l5 <- S.atomically S.newEmptyTMVar
+    l6 <- S.atomically S.newEmptyTMVar
+    l7 <- S.atomically S.newEmptyTMVar
+    l8 <- S.atomically S.newEmptyTMVar
+    l9 <- S.atomically S.newEmptyTMVar
+    l10 <- S.atomically S.newEmptyTMVar
+
+    con <- readFile "/etc/winot"
+    let conf = O.parseTomlDoc "" $ T.pack con
+
+    return $ case conf of
+               Left _ -> Nothing
+               Right c -> Just World { loopTimes = []
+                                     , config            = c
+                                     , checkVPNLock      = l1
+                                     , checkWLANLock     = l10
+                                     , checkWWANLock     = l2
+                                     , connectVPNLock    = l8
+                                     , connectWLANLock   = l9
+                                     , connectWWANLock   = l3
+                                     , processListLock   = l4
+                                     , interfaceListLock = l5
+                                     , routeListLock     = l6
+                                     , chooseRouteLock   = l7
+                                     , vpnIf = Nothing
+                                     , vpnOK = vk
+                                     , wlanIf = Nothing
+                                     , wlanOK = wlok
+                                     , wwanIf = Nothing
+                                     , wwanOK = wwok
+                                     , routeList = rt
+                                     , interfaceList = it
+                                     , processList = pt
+                                     , wlanSignalStrengthLog = ssl
+                                     , wlanBandwidthLog = bwl
+                                     , wlanList = wll
+                                     , lastScan = ls
+                                     }
+
+configString :: T.Text -> World -> Maybe T.Text
+configString setting world =
+    case H.lookup setting cfg of
+        Just node -> case node of
+            O.NTValue n -> case n of
+                O.VString s -> Just s
+                _ -> Nothing
+            _ -> Nothing
+        Nothing -> Nothing
+  where
+    cfg = config world
+

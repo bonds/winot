@@ -19,9 +19,11 @@ connections at all times.
 ## Requirements
 
 * OpenBSD 5.8 or later
+* [Stack][3]
+* icu4c package
 * a wwan adapter with a properly configured pppd peer configured, or a wifi
-  adapter plus [wiconfig][1] is installed and configured with your wifi passwords
-* your wlan intreface is configured through DHCP, i.e. the IP and other info is
+  adapter and a wifi network to connect to
+* your wifi intreface is configured through DHCP, i.e. the IP and other info is
   not statically configured in a hostname.if file
 
 ## Optional
@@ -32,6 +34,8 @@ connections at all times.
 ## Let's Install It Already
 
 1. ````git clone https://github.com/bonds/winot /tmp/winot````
+1. ````cd /tmp/winot````
+1. ````stack build````
 1. ````doas sh /tmp/winot/install.sh````
 1. edit /etc/winot and add your settings
 1. ````doas rcctl start winot````
@@ -42,4 +46,5 @@ connections at all times.
 
   [1]: https://github.com/devious/wiconfig
   [2]: http://www.kernel-panic.it/openbsd/vpn/vpn5.html
+  [3]: http://docs.haskellstack.org/en/stable/README/
 

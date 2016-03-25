@@ -21,4 +21,11 @@
 #wwan_if="ppp0" # default: first unused pppN adapter
 #wwan_peer="att"
 
+#[[networks]]
+#ssid="Summer"
+#password="mygreatpassword"
+
+#[[networks]]
+#ssid="iamanetwork"
+#password="helloworld"
 

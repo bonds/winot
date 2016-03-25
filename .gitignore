@@ -1,1 +1,6 @@
 *.core
+*.prof.*
+*.prof
+log
+.stack-work
+

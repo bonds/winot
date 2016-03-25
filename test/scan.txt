@@ -1,0 +1,46 @@
+iwm0: flags=8802<BROADCAST,SIMPLEX,MULTICAST> mtu 1500
+        lladdr xx:xx:xx:xx:xx:xx
+        priority: 4
+        groups: wlan egress
+        media: IEEE802.11 autoselect (OFDM6)
+        status: no network
+        ieee80211: nwid ""
+                nwid "Sand Labs" chan 4 bssid xx:xx:xx:xx:xx:xx 85% 54M privacy,spectrum_mgmt,short_slottime,radio_measurement,wpa2 
+                nwid "SM failover" chan 11 bssid xx:xx:xx:xx:xx:xx 82% 54M privacy,short_preamble,short_slottime,wpa2 
+                nwid "Summer Guest" chan 11 bssid xx:xx:xx:xx:xx:xx 82% 54M privacy,short_preamble,short_slottime,wpa2 
+                nwid "Summer 2GHZ" chan 6 bssid xx:xx:xx:xx:xx:xx 82% 54M privacy,spectrum_mgmt,short_slottime,radio_measurement,wpa2 
+                nwid "Summer 2GHZ" chan 6 bssid xx:xx:xx:xx:xx:xx 79% 54M privacy,spectrum_mgmt,short_slottime,radio_measurement,wpa2 
+                nwid "Summer 2GHZ" chan 11 bssid xx:xx:xx:xx:xx:xx 74% 54M privacy,spectrum_mgmt,short_slottime,radio_measurement,wpa2 
+                nwid "Summer Guest" chan 36 bssid xx:xx:xx:xx:xx:xx 73% 54M privacy,short_slottime,wpa2 
+                nwid "SM failover" chan 36 bssid xx:xx:xx:xx:xx:xx 71% 54M privacy,short_slottime,wpa2 
+                nwid Summer chan 149 bssid xx:xx:xx:xx:xx:xx 71% 54M privacy,spectrum_mgmt,radio_measurement,wpa2 
+                nwid "Summer 2GHZ" chan 11 bssid xx:xx:xx:xx:xx:xx 71% 54M privacy,spectrum_mgmt,short_slottime,radio_measurement,wpa2 
+                nwid Summer chan 52 bssid xx:xx:xx:xx:xx:xx 58% 54M privacy,spectrum_mgmt,radio_measurement,wpa2 
+                nwid 0x00000000000000000000 chan 149 bssid xx:xx:xx:xx:xx:xx 53% 54M spectrum_mgmt 
+                nwid "Summer 2GHZ" chan 11 bssid xx:xx:xx:xx:xx:xx 52% 54M privacy,spectrum_mgmt,short_slottime,radio_measurement,wpa2 
+                nwid Summer chan 149 bssid xx:xx:xx:xx:xx:xx 46% 54M privacy,spectrum_mgmt,radio_measurement,wpa2 
+                nwid Summer chan 36 bssid xx:xx:xx:xx:xx:xx 44% 54M privacy,spectrum_mgmt,radio_measurement,wpa2 
+                nwid "Sand Labs 5GHz" chan 36 bssid xx:xx:xx:xx:xx:xx 41% 54M privacy,spectrum_mgmt,radio_measurement,wpa2 
+                nwid BVVuhrVCTA chan 6 bssid xx:xx:xx:xx:xx:xx 38% 54M privacy,short_slottime,wpa2 
+                nwid Blling chan 6 bssid xx:xx:xx:xx:xx:xx 35% 54M privacy,short_preamble,short_slottime,wpa2 
+                nwid 907treesC chan 6 bssid xx:xx:xx:xx:xx:xx 35% 54M privacy,short_slottime,wpa2 
+                nwid "SM failover" chan 1 bssid xx:xx:xx:xx:xx:xx 35% 54M privacy,short_preamble,short_slottime,wpa2 
+                nwid "Summer 2GHZ" chan 6 bssid xx:xx:xx:xx:xx:xx 34% 54M privacy,spectrum_mgmt,short_slottime,radio_measurement,wpa2 
+                nwid 907treesc_guest chan 6 bssid xx:xx:xx:xx:xx:xx 34% 54M privacy,short_slottime,wpa2 
+                nwid ivemetrics chan 6 bssid xx:xx:xx:xx:xx:xx 25% 54M privacy,short_preamble,short_slottime,wpa2 
+                nwid "Summer Guest" chan 44 bssid xx:xx:xx:xx:xx:xx 23% 54M privacy,short_slottime,wpa2 
+                nwid "SM failover" chan 44 bssid xx:xx:xx:xx:xx:xx 22% 54M privacy,short_slottime,wpa2 
+                nwid xfinitywifi chan 11 bssid xx:xx:xx:xx:xx:xx 22% 54M short_preamble,short_slottime 
+                nwid tivemetrics chan 1 bssid xx:xx:xx:xx:xx:xx 22% 54M privacy,short_preamble,short_slottime,radio_measurement,wpa2 
+                nwid perot chan 2 bssid xx:xx:xx:xx:xx:xx 20% 54M privacy,short_slottime,radio_measurement,wpa2 
+                nwid "" chan 1 bssid xx:xx:xx:xx:xx:xx 20% 54M privacy,short_preamble,spectrum_mgmt,short_slottime,wpa2 
+                nwid belkin.64c.guests chan 11 bssid xx:xx:xx:xx:xx:xx 19% 54M short_slottime 
+                nwid perot-guest chan 2 bssid xx:xx:xx:xx:xx:xx 19% 54M short_slottime,radio_measurement 
+                nwid belkin.64c chan 11 bssid xx:xx:xx:xx:xx:xx 17% 54M privacy,short_slottime,wpa2 
+                nwid Summer chan 36 bssid xx:xx:xx:xx:xx:xx 16% 54M privacy,spectrum_mgmt,radio_measurement,wpa2 
+                nwid caseytext chan 6 bssid xx:xx:xx:xx:xx:xx 16% 54M privacy,short_slottime,radio_measurement,wpa2 
+                nwid bluefacefairy chan 11 bssid xx:xx:xx:xx:xx:xx 14% 54M privacy,short_slottime,wpa2 
+                nwid Summer chan 149 bssid xx:xx:xx:xx:xx:xx 14% 54M privacy,spectrum_mgmt,radio_measurement,wpa2 
+                nwid BVV774 chan 11 bssid xx:xx:xx:xx:xx:xx 13% 54M privacy,short_slottime,wpa2
+
+
