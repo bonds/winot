@@ -74,41 +74,48 @@ dhclient interface = do
 connectWLANConn :: World -> IO ()
 connectWLANConn world = do
     let logPrefix = "winot.connectWLANConn"
-    M.when (B.isJust wif) $ do
-        L.debugM logPrefix "connecting to the wlan"
-        wlanScan world
-        aps <- atomRead $ wlanList world
-        let fs = familiarSSIDs world
-        let familiarAndInRange = filter (\x -> ssid x `elem` fs) aps
-        M.unless (null familiarAndInRange) $ do
-            let s = ssid $ last $ DL.sortOn strength familiarAndInRange
-            let a = B.fromJust $ lookupSSID s world
-            let nwid = case a ! T.pack "ssid" of
-                           O.NTValue n -> case n of
-                               O.VString vs -> Just vs
-                               _          -> Nothing
-                           _         -> Nothing
-            let password = case a ! T.pack "password" of
+    let waitXSecondsBeforeDone  = 1
+    let waitXSecondsBeforeRetry = 30
+
+    startTime <- K.getTime K.Realtime
+    lastConnectAttempt <- atomRead (lastWLANConnect world)
+
+    M.when ((K.sec startTime - lastConnectAttempt) > waitXSecondsBeforeRetry) $ do
+        let wif = wlanIf world
+        M.when (B.isJust wif) $ do
+            L.debugM logPrefix "connecting to the wlan"
+            wlanScan world
+            aps <- atomRead $ wlanList world
+            let fs = familiarSSIDs world
+            let familiarAndInRange = filter (\x -> ssid x `elem` fs) aps
+            M.unless (null familiarAndInRange) $ do
+                let s = ssid $ last $ DL.sortOn strength familiarAndInRange
+                let a = B.fromJust $ lookupSSID s world
+                let nwid = case a ! T.pack "ssid" of
                                O.NTValue n -> case n of
-                                   O.VString vs2 -> Just vs2
-                                   _           -> Nothing
+                                   O.VString vs -> Just vs
+                                   _          -> Nothing
                                _         -> Nothing
-            M.when (B.isJust nwid && B.isJust password) $ do
-                L.infoM logPrefix "connecting to the wlan"
-                run $ T.concat [ "ifconfig "
-                               , B.fromJust wif
-                               , " nwid "
-                               , B.fromJust nwid
-                               , " wpakey "
-                               , B.fromJust password
-                               , " up"
-                               ]
-                dhclient $ B.fromJust wif
-                D.delay $ wait * (10::Integer)^(6::Integer)
-                return ()
-  where
-    wait = read $ T.unpack $ B.fromMaybe "30" (configString "WaitXSecondsForWLANToConnect" world)
-    wif = wlanIf world
+                let password = case a ! T.pack "password" of
+                                   O.NTValue n -> case n of
+                                       O.VString vs2 -> Just vs2
+                                       _           -> Nothing
+                                   _         -> Nothing
+                M.when (B.isJust nwid && B.isJust password) $ do
+                    L.infoM logPrefix "connecting to the wlan"
+                    connectTime <- K.getTime K.Realtime
+                    atomWrite (lastWLANConnect world) (K.sec connectTime)
+                    run $ T.concat [ "ifconfig "
+                                   , B.fromJust wif
+                                   , " nwid "
+                                   , B.fromJust nwid
+                                   , " wpakey "
+                                   , B.fromJust password
+                                   , " up"
+                                   ]
+                    dhclient $ B.fromJust wif
+                    D.delay $ waitXSecondsBeforeDone * (10::Integer)^(6::Integer)
+                    return ()
 
 wlanSignalOK :: World -> IO Bool
 wlanSignalOK world = do

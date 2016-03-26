@@ -28,6 +28,9 @@ data World = World { config :: O.Table
                    , wlanBandwidthLog :: S.TVar [Int]
                    , wlanList :: S.TVar [APInfo]
                    , lastScan :: S.TVar G.Int64
+                   , lastVPNConnect :: S.TVar G.Int64
+                   , lastWLANConnect :: S.TVar G.Int64
+                   , lastWWANConnect :: S.TVar G.Int64
                    , vpnIf :: Maybe T.Text
                    , vpnOK :: S.TVar Bool
                    , wlanIf :: Maybe T.Text
@@ -62,6 +65,9 @@ initialWorld = do
     wlok <- S.atomically $ S.newTVar False
     wwok <- S.atomically $ S.newTVar False
     ls <- S.atomically $ S.newTVar 0
+    lvc <- S.atomically $ S.newTVar 0
+    lwwc <- S.atomically $ S.newTVar 0
+    lwlc <- S.atomically $ S.newTVar 0
     bwl <- S.atomically $ S.newTVar []
     ssl <- S.atomically $ S.newTVar []
     wll <- S.atomically $ S.newTVar []
@@ -100,6 +106,9 @@ initialWorld = do
                                      , wlanBandwidthLog = bwl
                                      , wlanList = wll
                                      , lastScan = ls
+                                     , lastVPNConnect = lvc
+                                     , lastWWANConnect = lwwc
+                                     , lastWLANConnect = lwlc
                                      }
 
 configString :: T.Text -> World -> Maybe T.Text
