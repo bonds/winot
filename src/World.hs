@@ -17,9 +17,6 @@ data World = World { config :: O.Table
                    , checkWLANLock :: S.TMVar ()
                    , checkWWANLock :: S.TMVar ()
                    , chooseRouteLock :: S.TMVar ()
-                   , connectVPNLock :: S.TMVar ()
-                   , connectWLANLock :: S.TMVar ()
-                   , connectWWANLock :: S.TMVar ()
                    , interfaceList :: S.TVar [IFInfo]
                    , interfaceListLock :: S.TMVar ()
                    , loopTimes :: [G.Int64]
@@ -70,13 +67,10 @@ initialWorld = do
     wll <- S.atomically $ S.newTVar []
     l1 <- S.atomically S.newEmptyTMVar
     l2 <- S.atomically S.newEmptyTMVar
-    l3 <- S.atomically S.newEmptyTMVar
     l4 <- S.atomically S.newEmptyTMVar
     l5 <- S.atomically S.newEmptyTMVar
     l6 <- S.atomically S.newEmptyTMVar
     l7 <- S.atomically S.newEmptyTMVar
-    l8 <- S.atomically S.newEmptyTMVar
-    l9 <- S.atomically S.newEmptyTMVar
     l10 <- S.atomically S.newEmptyTMVar
 
     con <- readFile "/etc/winot"
@@ -89,9 +83,6 @@ initialWorld = do
                                      , checkVPNLock      = l1
                                      , checkWLANLock     = l10
                                      , checkWWANLock     = l2
-                                     , connectVPNLock    = l8
-                                     , connectWLANLock   = l9
-                                     , connectWWANLock   = l3
                                      , processListLock   = l4
                                      , interfaceListLock = l5
                                      , routeListLock     = l6

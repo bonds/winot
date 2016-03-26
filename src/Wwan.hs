@@ -44,11 +44,10 @@ connectWWAN world = do
     let waitXSecondsForWwanToConnect = 30
     let wp = configString "wwan_peer" world
 
-    M.when (B.isJust wp) $
-        tryLock "connectWWANLock" (connectWWANLock world) $ do
-            L.infoM logPrefix "connecting to the wwan"
-            run $ "/usr/sbin/pppd call " `T.append` B.fromJust wp
-            D.delay $ waitXSecondsForWwanToConnect * (10::Integer)^(6::Integer)
+    M.when (B.isJust wp) $ do
+        L.infoM logPrefix "connecting to the wwan"
+        run $ "/usr/sbin/pppd call " `T.append` B.fromJust wp
+        D.delay $ waitXSecondsForWwanToConnect * (10::Integer)^(6::Integer)
 
 wwanGateway :: T.Text -> T.Text -> Maybe T.Text
 wwanGateway rl wif =

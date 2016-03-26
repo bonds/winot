@@ -59,6 +59,8 @@ chooseRoute world = do
                 else do
                     L.debugM logPrefix "route choice: wgbad"
                     L.errorM logPrefix "wwan is ok but no wwan gateway?!"
+                    L.debugM logPrefix $ T.unpack $ T.concat [".... wif is ", B.fromJust wif]
+                    L.debugM logPrefix $ T.unpack $ T.concat [".... rl is ", rl]
             else do
                 L.debugM logPrefix "route choice: wifbad"
                 L.errorM logPrefix "wwan is ok but no wwan interface?!"
@@ -83,10 +85,9 @@ routeVPNViaWLAN rl wlg world = do
                 return ()
 
 updateRouteList :: World -> IO ()
-updateRouteList world =
-    tryLock "routeListLock" (routeListLock world) $ do
-        list <- runRead "route -n show -inet"
-        atomWrite (routeList world) list
+updateRouteList world = do
+    list <- runRead "route -n show -inet"
+    atomWrite (routeList world) list
 
 defaultRouteIP :: T.Text -> Maybe T.Text
 defaultRouteIP rl = case ip of
