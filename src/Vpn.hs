@@ -50,12 +50,11 @@ checkVPN world =
 connectVPN :: World -> IO ()
 connectVPN world = do
     let logPrefix = "winot.connectVPN"
-    let waitXSecondsForVPNToConnect = 30
+    let waitXSecondsForVPNToConnect = 15
     wlg <- wlanGateway (wlanIf world)
     sas <- sshAuthSock world
     let ip = configString "vpn_server_public_ip" world
     let vif = vpnIf world
-    let vspip = configString "vpn_server_private_ip" world
     M.when (B.isJust wlg && B.isJust ip && B.isJust (vpnCommand world) && B.isJust sas && B.isJust vif) $ do
         L.infoM logPrefix "connecting to the vpn"
         L.debugM logPrefix $ T.unpack $ "vpn comand: " `T.append` B.fromJust (vpnCommand world)
@@ -69,9 +68,6 @@ connectVPN world = do
                                        , " "
                                        , B.fromJust (vpnCommand world)
                                        ]
-        run "route -T 1 flush"
-        run $ "route -T 1 add default " `T.append` B.fromJust vspip
-        run $ "route -T 1 add " `T.append` B.fromJust ip `T.append` " " `T.append` B.fromJust wlg
         D.delay $ waitXSecondsForVPNToConnect * (10::Integer)^(6::Integer)
 
 -- TODO: vpnCommand could change between calls, i.e. between start and cleanup
