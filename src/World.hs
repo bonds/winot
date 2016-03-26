@@ -16,7 +16,7 @@ data World = World { config :: O.Table
                    , checkVPNLock :: S.TMVar ()
                    , checkWLANLock :: S.TMVar ()
                    , checkWWANLock :: S.TMVar ()
-                   , chooseRouteLock :: S.TMVar ()
+                   , checkRouteLock :: S.TMVar ()
                    , interfaceList :: S.TVar [IFInfo]
                    , interfaceListLock :: S.TMVar ()
                    , loopTimes :: [G.Int64]
@@ -83,10 +83,10 @@ initialWorld = do
                                      , checkVPNLock      = l1
                                      , checkWLANLock     = l10
                                      , checkWWANLock     = l2
+                                     , checkRouteLock    = l7
                                      , processListLock   = l4
                                      , interfaceListLock = l5
                                      , routeListLock     = l6
-                                     , chooseRouteLock   = l7
                                      , vpnIf = Nothing
                                      , vpnOK = vk
                                      , wlanIf = Nothing

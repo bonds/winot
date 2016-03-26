@@ -16,8 +16,9 @@ import qualified System.Log.Logger as L
 
 default (T.Text, Integer, Double)
 
-chooseRoute :: World -> IO ()
-chooseRoute world = do
+checkRoute :: World -> IO ()
+checkRoute world = do
+    updateRouteList world
     wlanok <- atomRead $ wlanOK world
     if wlanok then do
         L.debugM logPrefix "route choice: wlanok"

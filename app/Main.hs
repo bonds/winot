@@ -138,13 +138,12 @@ mainLoop world = do
         vspip
 
     M.unless vpnok $ do
-        tryLockFork "routeListLock" (routeListLock world) (updateRouteList world')
         tryLockFork "processListLock" (processListLock world) (updateProcessList world')
         tryLockFork "interfaceListLock" (interfaceListLock world) (updateInterfaceList world')
         tryLockFork "checkWWANLock" (checkWWANLock world) (checkWWAN world')
         tryLockFork "checkWLANLock" (checkWLANLock world) (checkWLAN world')
         tryLockFork "checkVPNLock" (checkVPNLock world) (checkVPN world')
-        tryLockFork "chooseRoute" (chooseRouteLock world) (chooseRoute world')
+        tryLockFork "checkRoute" (checkRouteLock world) (checkRoute world')
         return ()
 
     _ <- D.delay $ secondsBetweenLoops * (10 :: Integer) ^ (6 :: Integer)
