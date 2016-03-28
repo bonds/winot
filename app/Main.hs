@@ -22,6 +22,7 @@ import qualified System.Log.Handler as LH
 import qualified System.Log.Handler.Simple as LH
 import qualified System.Log.Logger as L
 import qualified System.Posix.Signals as P
+import qualified System.Posix.Process as P
 
 default (T.Text, Integer, Double)
 
@@ -29,7 +30,7 @@ main :: IO ()
 main = do
     let logPrefix = "winot.main"
 
-    run "renice -n 20 $$" -- run at low priority
+    P.nice 20 -- run at low priority
     uid <- runRead "id -u"
     M.when (T.strip uid /= "0") $ do
         putStrLn "error: this script must be run by root"
@@ -131,11 +132,10 @@ mainLoop world = do
     _ <- C.forkIO $ recordWLANBandwidth world'
 
     dr <- runRead "route -n get -inet default"
-    let vspip = configString "vpn_server_private_ip" world
     vpnok <- maybe
         (return False)
         (\ip -> if ip `T.isInfixOf` dr then ping 3 ip else return False)
-        vspip
+        (configString "vpn_server_private_ip" world)
 
     M.unless vpnok $ do
         tryLockFork "processListLock" (processListLock world) (updateProcessList world')

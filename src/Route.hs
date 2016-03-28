@@ -42,14 +42,14 @@ checkRoute world = do
     else do
         L.debugM logPrefix "route choice: wlanbad"
         tryWWAN world
-    L.debugM logPrefix "fn:checkRoutes finish"
+    L.debugM logPrefix "finished"
   where
     logPrefix = "winot.checkRoutes"
     tryWWAN w = do
         wwanok <- atomRead $ wwanOK w
+        rl <- atomRead (routeList w)
         if wwanok then do
             L.debugM logPrefix "route choice: wwanok"
-            rl <- atomRead (routeList w)
             let wif = wwanIf w
             if B.isJust wif then do
                 L.debugM logPrefix "route choice: wifok"
@@ -62,12 +62,14 @@ checkRoute world = do
                     L.errorM logPrefix "wwan is ok but no wwan gateway?!"
                     L.debugM logPrefix $ T.unpack $ T.concat [".... wif is ", B.fromJust wif]
                     L.debugM logPrefix $ T.unpack $ T.concat [".... rl is ", rl]
+                    clearDefaultRoute rl
             else do
                 L.debugM logPrefix "route choice: wifbad"
                 L.errorM logPrefix "wwan is ok but no wwan interface?!"
+                clearDefaultRoute rl
         else do
             L.debugM logPrefix "route choice: wwanbad"
-            L.debugM logPrefix "route choice: no update"
+            clearDefaultRoute rl
 
 routeVPNViaWLAN :: T.Text -> Maybe T.Text -> World -> IO ()
 routeVPNViaWLAN rl wlg world = do
@@ -106,11 +108,14 @@ setDefaultRoute rl ip = do
     L.debugM logPrefix $ T.unpack $ T.concat [" target default gateway = ", ip]
     M.unless (drip == Just ip) $ do
         L.infoM "winot.setDefaultRoute" $ T.unpack $ T.concat ["changing default gatway to ", ip]
-        {-L.debugM logPrefix "route flush"-}
-        {-run "route -qn flush"-}
-        L.debugM logPrefix "delete existing default route(s)"
-        M.replicateM_ (length $ U.findAll (U.regex [U.Multiline] "^default") rl) $ run "route delete default"
+        clearDefaultRoute rl
         L.debugM logPrefix "add new default route"
         run $ T.concat ["route add default ", ip]
         return ()
+
+clearDefaultRoute :: T.Text -> IO ()
+clearDefaultRoute rl = do
+    let logPrefix = "winot.clearDefaultRoute"
+    L.debugM logPrefix "delete existing default route(s)"
+    M.replicateM_ (length $ U.findAll (U.regex [U.Multiline] "^default") rl) $ run "route delete default"
 
