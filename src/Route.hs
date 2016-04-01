@@ -63,27 +63,29 @@ checkRoute world = do
                     L.debugM logPrefix $ T.unpack $ T.concat [".... wif is ", B.fromJust wif]
                     L.debugM logPrefix $ T.unpack $ T.concat [".... rl is ", rl]
                     clearDefaultRoute rl
+                    clearVPNRoute world
             else do
                 L.debugM logPrefix "route choice: wifbad"
                 L.errorM logPrefix "wwan is ok but no wwan interface?!"
                 clearDefaultRoute rl
+                clearVPNRoute world
         else do
             L.debugM logPrefix "route choice: wwanbad"
             clearDefaultRoute rl
+            clearVPNRoute world
 
 routeVPNViaWLAN :: T.Text -> Maybe T.Text -> World -> IO ()
 routeVPNViaWLAN rl wlg world = do
     let logPrefix = "winot.routeVPNViaWLAN"
     let vspi = configString "vpn_server_public_ip" world
     M.when (B.isJust vspi) $ do
-        let wwg = wwanGateway rl (B.fromJust $ wwanIf world)
         let vg = vpnGateway rl $ B.fromJust vspi
         M.when (B.isJust vg) $ do
             L.debugM logPrefix $ T.unpack $ T.concat ["vpnSPIP ", B.fromJust vspi]
             L.debugM logPrefix $ T.unpack $ T.concat ["vpnGateway ", B.fromJust vg]
             M.when (B.fromJust vg /= B.fromJust wlg) $ do
                 L.infoM logPrefix "adding route to vpn server via wlan"
-                run $ T.concat ["route delete ", B.fromJust vspi, " ", B.fromJust wwg]
+                clearVPNRoute world
                 run $ T.concat ["route add ", B.fromJust vspi, " ", B.fromJust wlg]
                 return ()
 
@@ -118,4 +120,9 @@ clearDefaultRoute rl = do
     let logPrefix = "winot.clearDefaultRoute"
     L.debugM logPrefix "delete existing default route(s)"
     M.replicateM_ (length $ U.findAll (U.regex [U.Multiline] "^default") rl) $ run "route delete default"
+
+clearVPNRoute :: World -> IO ()
+clearVPNRoute world = do
+    let vspi = configString "vpn_server_public_ip" world
+    run $ T.concat ["route delete ", B.fromJust vspi]
 
