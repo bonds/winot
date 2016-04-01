@@ -1,6 +1,6 @@
 name:                winot
 version:             0.1.0.0
-synopsis:            Initial project template from stack
+synopsis:            keep your laptop connected to wifi at all times on OpenBSD
 description:         Please see README.md
 homepage:            http://github.com/bonds/winot#readme
 license:             ISC
@@ -35,6 +35,8 @@ library
                      , string-conversions
                      , text-icu
                      , mtl
+                     --, fast-logger
+                     --, time
   default-language:    Haskell2010
 
 executable winot-exe

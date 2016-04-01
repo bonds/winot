@@ -21,8 +21,8 @@ import qualified System.Log.Formatter as LF
 import qualified System.Log.Handler as LH
 import qualified System.Log.Handler.Simple as LH
 import qualified System.Log.Logger as L
-import qualified System.Posix.Signals as P
 import qualified System.Posix.Process as P
+import qualified System.Posix.Signals as P
 
 default (T.Text, Integer, Double)
 
@@ -166,7 +166,7 @@ cleanUp world = do
 
     -- clear out the route and interface config changes we made
     _ <- D.delay $ 1 * (10 :: Integer) ^ (6 :: Integer) -- wait for pppd to exit and free up wwanif
-    run "route delete default"
+    run "route -qn flush"
     M.when (B.isJust vif) $ do
         run $ "ifconfig " `T.append` B.fromJust vif `T.append` " destroy"
         return ()

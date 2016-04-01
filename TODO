@@ -1,12 +1,12 @@
-* write tests for regex, i.e. parsing the ifconfig and routes
 * delete the vpn over wlan route on cleanup
+* refactor to use https://github.com/wdanilo/haskell-logger
+* or maybe https://github.com/Soostone/katip
 
 * use "route -n monitor" to detect changes to the routes, don't get a new routing table unless its changed
+* instead of polling everything every second, be lazier, getting routes only when needed, i.e. do less work when ping is working, do more work when its not
 * notice if we're blocked by PF on wwan, wlan, vpn
 * notice if we're blocked by no SSH keys in agent
 * use parsec instead of regex for parsing ifconfig, routes, wlan scan, etc
-* trylock before forking to conserve resources
-* instead of polling everything every second, be lazier, getting routes only when needed, i.e. do less work when ping is working, do more work when its not
 * use the state monad instead of World?
 
 main

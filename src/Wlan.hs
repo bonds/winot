@@ -30,7 +30,7 @@ checkWLAN world = do
                 wsok <- wlanSignalOK world
                 if wsok then do
                     wlg <- wlanGateway (wlanIf world)
-                    pok <- pingMaybe wlg
+                    pok <- maybe (return False) (ping 3) wlg
                     if pok then do
                         oldOK <- atomRead (wlanOK world)
                         M.unless oldOK $ do

@@ -15,6 +15,8 @@ import qualified System.Log.Logger as L
 import qualified System.Process as P
 import qualified Data.Maybe as B
 import qualified Data.Text.ICU as U
+{-import qualified System.Log.FastLogger as L-}
+{-import qualified Data.Time.LocalTime as DT-}
 
 default (T.Text, Integer, Double)
 
@@ -78,18 +80,6 @@ pingVia rt count host
             D.delay $ (10::Integer)^(6::Integer) -- wait a second between ping attempts
             pingVia rt (count-1) host
 
-pingMaybe :: Maybe T.Text -> IO Bool
-pingMaybe (Just ip) = do
-    let logPrefix = "winot.pingMaybe"
-    L.debugM logPrefix $ T.unpack $ T.concat ["pinging ", ip]
-    result <- ping 3 ip
-    L.debugM logPrefix $ T.unpack $ T.concat ["ping success? ", T.pack (show result)]
-    return result
-pingMaybe Nothing = do
-    let logPrefix = "winot.pingMaybe"
-    L.debugM logPrefix "ping failed because no IP"
-    return False
-
 detailOrEmpty :: Maybe IFInfo -> T.Text
 detailOrEmpty (Just x) = detail x
 detailOrEmpty Nothing = ""
@@ -115,19 +105,44 @@ runRead command = do
 runReadEC :: T.Text -> IO (T.Text, E.ExitCode)
 runReadEC command = do
     let logPrefix = "winot.runReadEC"
+    {-logSet <- L.newStdoutLoggerSet L.defaultBufSize-}
     L.debugM logPrefix $ T.unpack $ T.concat ["run: ", command]
+    {-debug logPrefix (T.concat ["run: ", command]) logSet-}
     (_, Just hout, Just herr, ph) <- P.createProcess
         (P.shell $ T.unpack command)
         {P.std_out = P.CreatePipe, P.std_err = P.CreatePipe}
     ec <- P.waitForProcess ph
     stdout <- H.hGetContents hout
     stderr <- H.hGetContents herr
+    {-debugStdout logPrefix (T.lines $ T.pack stdout) logSet-}
+    {-debugStderr logPrefix (T.lines $ T.pack stderr) logSet-}
     mapM_ (printLine logPrefix "| ") (T.lines $ T.pack stdout)
     mapM_ (printLine logPrefix "x ") (T.lines $ T.pack stderr)
     return (T.pack stdout, ec)
-  where
-    printLine logPre linePrefix line =
-        L.debugM logPre $ T.unpack $ T.concat [linePrefix, line]
+ where
+   printLine logPre linePrefix line =
+       L.debugM logPre $ T.unpack $ T.concat [linePrefix, line]
+
+{-debug :: T.Text -> T.Text -> L.LoggerSet -> IO ()-}
+{-debug loc msg = logLines (T.concat [" : ", loc, " : DEBUG] "]) [msg]-}
+
+{-debugStd :: T.Text -> T.Text -> [T.Text] -> L.LoggerSet -> IO ()-}
+{-debugStd pre loc = logLines (T.concat [" : ", loc, " : DEBUG", pre, " "])-}
+
+{-debugStdout :: T.Text -> [T.Text] -> L.LoggerSet -> IO ()-}
+{-debugStdout = debugStd "|"-}
+
+{-debugStderr :: T.Text -> [T.Text] -> L.LoggerSet -> IO ()-}
+{-debugStderr = debugStd "x"-}
+
+{-logLines :: T.Text -> [T.Text] -> L.LoggerSet -> IO ()-}
+{-logLines lPrefix ls lSet = do-}
+    {-now <- DT.getZonedTime-}
+    {-let nowText = T.pack $ show now-}
+    {-mapM_-}
+        {-(\l -> L.pushLogStrLn lSet (L.toLogStr $ T.concat [nowText, lPrefix, l]))-}
+        {-ls-}
+    {-return ()-}
 
 lastMatchFirstGroup :: [[String]] -> Maybe T.Text
 lastMatchFirstGroup x@(_:_) =

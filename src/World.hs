@@ -9,6 +9,7 @@ import qualified Data.Text as T
 import qualified GHC.Int as G
 import qualified Text.Toml as O
 import qualified Text.Toml.Types as O
+{-import qualified System.Log.FastLogger as L-}
 
 default (T.Text)
 
@@ -37,6 +38,7 @@ data World = World { config :: O.Table
                    , wlanOK :: S.TVar Bool
                    , wwanIf :: Maybe T.Text
                    , wwanOK :: S.TVar Bool
+                   {-, loggerSet :: L.LoggerSet-}
                    }
 
 instance Show World where
@@ -78,6 +80,7 @@ initialWorld = do
     l6 <- S.atomically S.newEmptyTMVar
     l7 <- S.atomically S.newEmptyTMVar
     l10 <- S.atomically S.newEmptyTMVar
+    {-lset <- L.newFileLoggerSet L.defaultBufSize "/var/log/winot2"-}
 
     con <- readFile "/etc/winot"
     let conf = O.parseTomlDoc "" $ T.pack con
@@ -109,6 +112,7 @@ initialWorld = do
                                      , lastVPNConnect = lvc
                                      , lastWWANConnect = lwwc
                                      , lastWLANConnect = lwlc
+                                     {-, loggerSet = lset-}
                                      }
 
 configString :: T.Text -> World -> Maybe T.Text
