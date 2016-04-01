@@ -3,4 +3,7 @@
 *.prof
 log
 .stack-work
-
+*.pdf
+*.hp
+*.ps
+*.aux
