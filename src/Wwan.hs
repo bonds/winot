@@ -1,8 +1,7 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# OPTIONS_GHC -Wall -Werror #-}
-
 module Wwan where
 
+import Protolude
+import Prelude (($))
 import Util
 import World
 import qualified Control.Concurrent.Thread.Delay as D
@@ -33,7 +32,7 @@ checkWWAN world = do
     if status then M.unless oldOK $ L.infoM logPrefix "connected to wwan"
     else M.when (wwanEnabled world) $ do
         connectWWAN world
-        return ()
+        M.return ()
 
   where
     wif = wwanIf world
@@ -79,7 +78,7 @@ chooseWWANIf world = do
     let configIf = configString "wwan_if" world
     let wif = B.fromMaybe (firstIfAvailable "ppp" ifs) configIf
     L.debugM logPrefix $ T.unpack $ "chose " `T.append` wif
-    return $ Just wif
+    M.return $ Just wif
 
 wwanEnabled :: World -> Bool
 wwanEnabled world =

@@ -3,6 +3,8 @@
 
 module Util where
 
+import Protolude
+import Prelude (($), last, maximum, String, (++), read, take)
 import World
 import qualified Control.Concurrent as C
 import qualified Control.Concurrent.STM as S
@@ -47,8 +49,8 @@ tryLockFork n lock actions = do
         _ <- C.forkIO $ do
             actions
             S.atomically $ S.takeTMVar lock
-            return ()
-        return ()
+            M.return ()
+        M.return ()
 
 lastOrBlank :: [T.Text] -> T.Text
 lastOrBlank x@(_:_) = last x
@@ -73,10 +75,10 @@ ping = pingVia 0
 
 pingVia :: Int -> Int -> T.Text -> IO Bool
 pingVia rt count host
-    | count < 1 = return False
+    | count < 1 = M.return False
     | otherwise = do
         ec <- runEC $ T.concat ["ping -V ", T.pack (show rt), " -q -c 1 -w 1 ", host]
-        if wasSuccess ec then return True else do
+        if wasSuccess ec then M.return True else do
             D.delay $ (10::Integer)^(6::Integer) -- wait a second between ping attempts
             pingVia rt (count-1) host
 
@@ -90,17 +92,17 @@ lastX x l = reverse $ take x $ reverse l
 run :: T.Text -> IO ()
 run command = do
     _ <- runRead command
-    return ()
+    M.return ()
 
 runEC :: T.Text -> IO E.ExitCode
 runEC command = do
     (_,ec) <- runReadEC command
-    return ec
+    M.return ec
 
 runRead :: T.Text -> IO T.Text
 runRead command = do
     (stdout,_) <- runReadEC command
-    return stdout
+    M.return stdout
 
 runReadEC :: T.Text -> IO (T.Text, E.ExitCode)
 runReadEC command = do
@@ -118,7 +120,7 @@ runReadEC command = do
     {-debugStderr logPrefix (T.lines $ T.pack stderr) logSet-}
     mapM_ (printLine logPrefix "| ") (T.lines $ T.pack stdout)
     mapM_ (printLine logPrefix "x ") (T.lines $ T.pack stderr)
-    return (T.pack stdout, ec)
+    M.return (T.pack stdout, ec)
  where
    printLine logPre linePrefix line =
        L.debugM logPre $ T.unpack $ T.concat [linePrefix, line]
@@ -162,17 +164,16 @@ parseInterfaceList il = list
            | record <- snd $ infos (T.lines il, [])]
     infos :: ([T.Text], [(T.Text, [T.Text])]) -> ([T.Text], [(T.Text, [T.Text])])
     infos ([], records) = ([], records)
-    infos (ls, records)
-        | B.isJust (U.find (U.regex [] "^[a-zA-Z]*[0-9]: ") currentLine) = infos (tail ls, records ++
-            [(B.fromJust (U.group 0 (B.fromJust (U.find (U.regex [] "^[a-zA-Z]*[0-9]") currentLine)))
-                                                , [currentLine]
-                                                )])
-        | otherwise = infos (tail ls, init' records ++
-                      [(fst currentRecord, snd currentRecord ++ [currentLine])])
+    infos (x:xs, records)
+        | startsWithInterfaceName = infos (xs, records ++ [(interfaceName, [x])])
+        | otherwise = infos (xs, initOrEmpty records ++ [(currentName, currentDetail ++ [x])])
       where
-        currentLine = head ls
+        startsWithInterfaceName = B.isJust (U.find (U.regex [] "^[a-zA-Z]*[0-9]: ") x)
+        interfaceName = B.fromJust (U.group 0 (B.fromJust (U.find (U.regex [] "^[a-zA-Z]*[0-9]") x)))
         currentRecord = last records
-        init' :: [a] -> [a]
-        init' x = reverse $ drop 1 $ reverse x -- gives a empty list if less than 2 in list
+        currentName = fst currentRecord
+        currentDetail = snd currentRecord
 
+initOrEmpty :: [a] -> [a]
+initOrEmpty x = reverse $ drop 1 $ reverse x -- gives a empty list if less than 2 in list
 

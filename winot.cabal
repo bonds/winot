@@ -10,59 +10,91 @@ maintainer:          scott@ggr.com
 copyright:           2016 Scott Bonds
 category:            Networking
 build-type:          Simple
--- extra-source-files:
 cabal-version:       >=1.10
+tested-with:
+  GHC == 7.10.3
+Bug-Reports:         https://github.com/bonds/winot/issues
 
 library
-  hs-source-dirs:      src
-  exposed-modules:     Wlan
+  exposed-modules:     Protolude
+                     , Loop
+                     , Wlan
                      , Wwan
                      , Route
                      , World
                      , Util
                      , Vpn
-  build-depends:       base >= 4.7 && < 5
+  other-modules:
+    Applicative
+    Bool
+    Debug
+    List
+    Monad
+    Unsafe
+
+  default-extensions:
+    NoImplicitPrelude
+    OverloadedStrings
+
+  ghc-options:
+    -Wall
+    -Werror
+
+  build-depends:       base             >= 4.6 && <4.10
+                     , safe             >= 0.3 && <0.4
+                     , async            >= 2.1 && <2.2
+                     , deepseq          >= 1.3 && <= 1.5
+                     , containers       >= 0.5 && <0.6
+                     , semiring-simple  >= 1.0 && <1.1
+                     , mtl              >= 2.1 && <2.3
+                     , transformers     >= 0.4 && < 0.6
+                     , text             >= 1.2 && <1.3
+                     , string-conv      >= 0.1 && <0.2
+                     , bytestring       >= 0.10 && <0.11
                      , hslogger
                      , unbounded-delays
                      , stm
                      , process
-                     , regex-tdfa
                      , clock
                      , htoml
                      , parsec
-                     , text
                      , unordered-containers
                      , string-conversions
                      , text-icu
-                     , mtl
-                     --, fast-logger
-                     --, time
+                     , monad-loops
+                     , extra
+                     , threads
+                     , unix
+
+  hs-source-dirs:      src
   default-language:    Haskell2010
 
 executable winot-exe
-  hs-source-dirs:      app
-  main-is:             Main.hs
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
-  build-depends:       base
+  default-extensions:
+    NoImplicitPrelude
+
+  ghc-options:
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+    -Wall
+    -Werror
+
+  build-depends:       base             >= 4.6 && <4.10
+                     , safe             >= 0.3 && <0.4
+                     , async            >= 2.1 && <2.2
+                     , deepseq          >= 1.3 && <= 1.5
+                     , containers       >= 0.5 && <0.6
+                     , semiring-simple  >= 1.0 && <1.1
+                     , mtl              >= 2.1 && <2.3
+                     , transformers     >= 0.4 && < 0.6
+                     , text             >= 1.2 && <1.3
+                     , string-conv      >= 0.1 && <0.2
+                     , bytestring       >= 0.10 && <0.11
                      , winot
-                     , monad-loops
-                     , unbounded-delays
-                     , process
-                     , hslogger
-                     , extra
-                     , threads
-                     , containers
-                     , clock
-                     , lens
-                     , transformers
-                     , regex-tdfa
-                     , stm
-                     , unix
-                     , htoml
-                     , text
-                     , unordered-containers
-                     , parsec
-                     , text-icu
+
+  main-is:             Main.hs
+  hs-source-dirs:      app
   default-language:    Haskell2010
 
 test-suite winot-test

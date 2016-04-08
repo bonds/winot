@@ -3,6 +3,8 @@
 
 module Route where
 
+import Protolude
+import Prelude (($), read)
 import Util
 import Vpn
 import Wlan
@@ -87,7 +89,7 @@ routeVPNViaWLAN rl wlg world = do
                 L.infoM logPrefix "adding route to vpn server via wlan"
                 clearVPNRoute world
                 run $ T.concat ["route add ", B.fromJust vspi, " ", B.fromJust wlg]
-                return ()
+                M.return ()
 
 updateRouteList :: World -> IO ()
 updateRouteList world = do
@@ -113,7 +115,7 @@ setDefaultRoute rl ip = do
         clearDefaultRoute rl
         L.debugM logPrefix "add new default route"
         run $ T.concat ["route add default ", ip]
-        return ()
+        M.return ()
 
 clearDefaultRoute :: T.Text -> IO ()
 clearDefaultRoute rl = do

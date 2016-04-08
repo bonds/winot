@@ -1,15 +1,14 @@
 #!/bin/sh
 
-EXECPATH=.stack-work/install/x86_64-openbsd/lts-5.1/7.10.3/bin/winot-exe
+EXECPATH=$(find .stack-work/install -name "winot-exe")
 
 if [[ `id -u` != 0 ]]; then
     echo "error: this script must be run by root"
     exit 1
 fi
 
-echo installing winot
-
 if [ -f $EXECPATH ]; then
+    echo installing winot
     cp $EXECPATH /usr/local/bin/winot
     chown root:bin /usr/local/bin/winot
     chmod 555 /usr/local/bin/winot
@@ -27,4 +26,6 @@ if [ -f $EXECPATH ]; then
     echo done
     echo to start winot: doas rcctl start winot
     echo to start winot at boot: doas rcctl enable winot
+else
+    echo "couldnt find an executable to install, did you 'stack build' yet?"
 fi

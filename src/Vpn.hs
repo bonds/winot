@@ -3,6 +3,8 @@
 
 module Vpn where
 
+import Protolude
+import Prelude (($), readFile)
 import Util
 import Wlan
 import World
@@ -40,13 +42,13 @@ checkVPN world =
     notOK = do
         L.debugM logPrefix "vpnOK False"
         atomWrite (vpnOK world) False
-        return ()
+        M.return ()
 
     connect w = do
         L.debugM logPrefix "vpnOK False"
         atomWrite (vpnOK w) False
         connectVPN w
-        return ()
+        M.return ()
 
 connectVPN :: World -> IO ()
 connectVPN world = do
@@ -100,11 +102,11 @@ sshAuthSock :: World -> IO (Maybe T.Text)
 sshAuthSock world =
     if B.isJust fname then do
         contents <- readFile $ T.unpack (B.fromJust fname)
-        return $ case U.find (U.regex [] "SSH_AUTH_SOCK (.*);") (T.pack contents) of
+        M.return $ case U.find (U.regex [] "SSH_AUTH_SOCK (.*);") (T.pack contents) of
             Just m  -> U.group 1 m
             Nothing -> Nothing
     else
-        return Nothing
+        M.return Nothing
   where
     fname = configString "ssh_auth_sock_file" world
 
@@ -112,9 +114,9 @@ vpnProcOK :: World -> IO Bool
 vpnProcOK world =
     if B.isJust vcomm then do
         procs <- atomRead $ processList world
-        return $ B.fromJust vcomm `T.isInfixOf` procs
+        M.return $ B.fromJust vcomm `T.isInfixOf` procs
     else
-        return False
+        M.return False
   where
     vcomm = vpnCommand world
 
@@ -122,8 +124,8 @@ vpnConnOK :: World -> IO Bool
 vpnConnOK world = do
     let logPrefix = "winot.vpnConnOK"
     L.debugM logPrefix "start"
-    maybe (return False) (ping 3) ip
-    {-maybe (return False) (ping 3) $ Just "8.8.8.8"-}
+    maybe (M.return False) (ping 3) ip
+    {-maybe (M.return False) (ping 3) $ Just "8.8.8.8"-}
   where
     ip = configString "vpn_server_private_ip" world
 
@@ -133,7 +135,7 @@ chooseVPNIf world = do
     ifs <- atomRead (interfaceList world)
     let vif = B.fromMaybe (firstIfAvailable "tun" ifs) configIf
     L.debugM logPrefix $ T.unpack $ "chose " `T.append` vif
-    return $ Just vif
+    M.return $ Just vif
   where
     configIf = configString "vpn_if" world
 

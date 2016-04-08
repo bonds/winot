@@ -1,15 +1,13 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# OPTIONS_GHC -Wall -Werror #-}
-
 module World where
 
+import Protolude
+import Prelude (($), readFile, return)
 import qualified Control.Concurrent.STM as S
 import qualified Data.HashMap.Lazy as H
 import qualified Data.Text as T
 import qualified GHC.Int as G
 import qualified Text.Toml as O
 import qualified Text.Toml.Types as O
-{-import qualified System.Log.FastLogger as L-}
 
 default (T.Text)
 

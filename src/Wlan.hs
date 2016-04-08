@@ -4,6 +4,8 @@
 module Wlan where
 
 import Data.HashMap.Lazy as H ((!), HashMap)
+import Protolude
+import Prelude (($), read, maximum, (++), last, (!!), readFile)
 import Util
 import World
 import qualified Control.Concurrent.Thread.Delay as D
@@ -30,7 +32,7 @@ checkWLAN world = do
                 wsok <- wlanSignalOK world
                 if wsok then do
                     wlg <- wlanGateway (wlanIf world)
-                    pok <- maybe (return False) (ping 3) wlg
+                    pok <- maybe (M.return False) (ping 3) wlg
                     if pok then do
                         oldOK <- atomRead (wlanOK world)
                         M.unless oldOK $ do
@@ -62,14 +64,14 @@ checkWLAN world = do
     go todo w = do
         atomWrite (wlanOK w) False
         _ <- todo w
-        return ()
+        M.return ()
 
 dhclient :: T.Text -> IO ()
 dhclient interface = do
     let logPrefix = "winot.dhclient"
     L.debugM logPrefix $ T.unpack $ T.concat ["getting an IP via DHCP for ", interface]
     run $ T.concat ["dhclient -i routers ", interface]
-    return ()
+    M.return ()
 
 connectWLANConn :: World -> IO ()
 connectWLANConn world = do
@@ -115,21 +117,21 @@ connectWLANConn world = do
                                    ]
                     dhclient $ B.fromJust wif
                     D.delay $ waitXSecondsBeforeDone * (10::Integer)^(6::Integer)
-                    return ()
+                    M.return ()
 
 wlanSignalOK :: World -> IO Bool
 wlanSignalOK world = do
     ssls <- secondsSinceLastScan world
     wsw  <- wlanSignalWeak world
     wi   <- wlanIdle world
-    return $ not $ ssls > bscans && wsw && wi
+    M.return $ not $ ssls > bscans && wsw && wi
   where
       bscans = read $ T.unpack $ B.fromMaybe "60" (configString "MinimumSecondsBetweenScans" world)
 
 wlanSignalWeak :: World -> IO Bool
 wlanSignalWeak world = do
     l <- atomRead $ wlanSignalStrengthLog world
-    return $ length l >= intervals && maximum (lastX intervals l) < wsmeans
+    M.return $ length l >= intervals && maximum (lastX intervals l) < wsmeans
   where
     intervals = read $ T.unpack $ B.fromMaybe "30" (configString "WeakSignalIntervalsBeforeWeak" world)
     wsmeans = read $ T.unpack $ B.fromMaybe "20" (configString "WeakSignalMeansLessThan" world)
@@ -137,7 +139,7 @@ wlanSignalWeak world = do
 wlanIdle :: World -> IO Bool
 wlanIdle world = do
     l <- atomRead $ wlanBandwidthLog world
-    return $ length l >= intervals && maximum (lastX intervals l) < imeans
+    M.return $ length l >= intervals && maximum (lastX intervals l) < imeans
   where
     intervals = read $ T.unpack $ B.fromMaybe "30" (configString "IdleIntervalsBeforeIdle" world)
     imeans = read $ T.unpack $ B.fromMaybe "1000" (configString "IdleMeansLessThanXBytes" world)
@@ -158,7 +160,7 @@ wlanScan world = do
         L.debugM logPrefix $ T.unpack $ "scan raw: " `T.append` stdout
         L.debugM logPrefix $ T.unpack $ "scan aps: " `T.append` T.pack (show (list stdout))
         atomWrite (wlanList world) (list stdout)
-        return ()
+        M.return ()
   where
     wif = wlanIf world
     list r = B.mapMaybe apLineToInfo (T.lines r)
@@ -181,7 +183,7 @@ secondsSinceLastScan :: World -> IO Integer
 secondsSinceLastScan world = do
     ct <- K.getTime K.Realtime
     ls <- atomRead $ lastScan world
-    return $ fromIntegral $ K.sec ct - ls
+    M.return $ fromIntegral $ K.sec ct - ls
 
 wlanConnOK :: T.Text -> [IFInfo] -> [T.Text] -> Bool
 wlanConnOK wlif infos ssids = ("status: active" `T.isInfixOf` detailOrEmpty (DL.find (\i -> name i == wlif) infos))
@@ -211,7 +213,7 @@ chooseWLANIf world = do
                      (w:_)     -> Just w
                      _         -> Nothing
     L.debugM logPrefix $ T.unpack $ "chose " `T.append` B.fromMaybe "none" wif
-    return wif
+    M.return wif
 
 isWLAN :: IFInfo -> Bool
 isWLAN i = B.isJust (U.find (U.regex [U.Multiline] "groups:.*wlan") (detail i))
@@ -239,13 +241,13 @@ wlanBandwidth :: Maybe T.Text -> IO (Maybe T.Text)
 wlanBandwidth wif =
     if B.isJust wif then do
         stats <- runRead $ "systat -w 100 -B ifstat " `T.append` sampleSizeInSeconds
-        return $ case U.find
+        M.return $ case U.find
                 (U.regex [U.Multiline] ("^" `T.append` B.fromJust wif `T.append` ".*"))
                 stats of
             Just m -> Just $ T.words (B.fromJust $ U.group 0 m) !! 6
             Nothing -> Nothing
     else
-        return Nothing
+        M.return Nothing
   where
     sampleSizeInSeconds = "1"
 
@@ -298,8 +300,8 @@ wlanGateway wif = do
                           Just m -> U.group 1 m
                           Nothing -> Nothing
         L.debugM logPrefix $ T.unpack $ "wlanGateway matches: " `T.append` T.pack (show matches)
-        return matches
-    else return Nothing
+        M.return matches
+    else M.return Nothing
 
 familiarSSIDs :: World -> [T.Text]
 familiarSSIDs world =
