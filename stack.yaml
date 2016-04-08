@@ -1,14 +1,17 @@
-# For more information, see: http://docs.haskellstack.org/en/stable/yaml_configuration.html
+=======
+# For more information, see: https://github.com/commercialhaskell/stack/blob/release/doc/yaml_configuration.md
 
 # Specifies the GHC version and set of packages available (e.g., lts-3.5, nightly-2015-09-21, ghc-7.10.2)
-resolver: lts-5.9
+resolver: lts-5.10
 
 # Local packages, usually specified by relative directory name
 packages:
-    - '.'
+- '.'
 
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
 extra-deps:
+    - semiring-simple-1.0.0.1
+    - string-conv-0.1
     - htoml-0.1.0.3
 
 # Override default flag values for local packages and extra-deps
@@ -22,7 +25,7 @@ extra-package-dbs: []
 
 # Require a specific version of stack, using version ranges
 # require-stack-version: -any # Default
-# require-stack-version: >= 1.0.0
+# require-stack-version: >= 0.1.4.0
 
 # Override the architecture used by stack, especially useful on Windows
 # arch: i386

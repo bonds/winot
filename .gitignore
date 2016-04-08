@@ -7,3 +7,5 @@ log
 *.hp
 *.ps
 *.aux
+*.sw[po]
+dist
