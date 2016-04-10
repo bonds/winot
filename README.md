@@ -1,4 +1,6 @@
-This is a script for OpenBSD that keeps you connected to your wireless
+[![Build Status](https://travis-ci.org/bonds/winot.svg?branch=master)](https://travis-ci.org/bonds/winot)
+
+This is a service for OpenBSD that keeps you connected to your wireless
 connections at all times.
 
 # Features
