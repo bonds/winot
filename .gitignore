@@ -9,3 +9,5 @@ log
 *.aux
 *.sw[po]
 dist
+.liquid
+
