@@ -20,7 +20,7 @@ sortOn = sortBy . comparing
 
 -- O(n * log n)
 ordNub :: (Ord a) => [a] -> [a]
-ordNub l = go Set.empty l
+ordNub = go Set.empty
   where
     go _ []     = []
     go s (x:xs) =
