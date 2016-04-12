@@ -1,11 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 {-# OPTIONS_GHC -Wall -Werror #-}
 
 module Wlan where
 
 import Data.HashMap.Lazy as H ((!), HashMap)
 import Protolude
-import Prelude (($), read, maximum, (++), last, (!!), readFile)
+import Prelude (($), read, maximum, (++), last, readFile)
 import Util
 import World
 import qualified Control.Concurrent.Thread.Delay as D
@@ -91,7 +92,9 @@ connectWLANConn world = do
             let fs = familiarSSIDs world
             let familiarAndInRange = filter (\x -> ssid x `elem` fs) aps
             M.unless (null familiarAndInRange) $ do
-                let s = ssid $ last $ DL.sortOn strength familiarAndInRange
+                let s = case DL.sortOn strength familiarAndInRange of
+                            ssids@(_:_) -> ssid $ last ssids
+                            _            -> ""
                 let a = B.fromJust $ lookupSSID s world
                 let nwid = case a ! T.pack "ssid" of
                                O.NTValue n -> case n of
@@ -131,7 +134,7 @@ wlanSignalOK world = do
 wlanSignalWeak :: World -> IO Bool
 wlanSignalWeak world = do
     l <- atomRead $ wlanSignalStrengthLog world
-    M.return $ length l >= intervals && maximum (lastX intervals l) < wsmeans
+    M.return $ length l >= intervals && maximum (lastN intervals l) < wsmeans
   where
     intervals = read $ T.unpack $ B.fromMaybe "30" (configString "WeakSignalIntervalsBeforeWeak" world)
     wsmeans = read $ T.unpack $ B.fromMaybe "20" (configString "WeakSignalMeansLessThan" world)
@@ -139,7 +142,7 @@ wlanSignalWeak world = do
 wlanIdle :: World -> IO Bool
 wlanIdle world = do
     l <- atomRead $ wlanBandwidthLog world
-    M.return $ length l >= intervals && maximum (lastX intervals l) < imeans
+    M.return $ length l >= intervals && maximum (lastN intervals l) < imeans
   where
     intervals = read $ T.unpack $ B.fromMaybe "30" (configString "IdleIntervalsBeforeIdle" world)
     imeans = read $ T.unpack $ B.fromMaybe "1000" (configString "IdleMeansLessThanXBytes" world)
@@ -231,9 +234,9 @@ recordWLANBandwidth world = do
             l <- atomRead $ wlanBandwidthLog world
             atomWrite
                 (wlanBandwidthLog world)
-                (lastX (itemsToKeep-1) l ++ [read $ T.unpack $ B.fromJust ni])
+                (lastN (itemsToKeep-1) l ++ [read $ T.unpack $ B.fromJust ni])
     log2 <- atomRead $ wlanBandwidthLog world
-    L.debugM logPrefix $ T.unpack $ "wlanbw: " `T.append` T.pack (show (lastX 5 log2))
+    L.debugM logPrefix $ T.unpack $ T.concat ["wlanbw: ", T.pack (show (lastN 5 log2))]
   where
     itemsToKeep = 100
 
@@ -244,7 +247,7 @@ wlanBandwidth wif =
         M.return $ case U.find
                 (U.regex [U.Multiline] ("^" `T.append` B.fromJust wif `T.append` ".*"))
                 stats of
-            Just m -> Just $ T.words (B.fromJust $ U.group 0 m) !! 6
+            Just m -> T.words (B.fromJust $ U.group 0 m) `atMay` 6
             Nothing -> Nothing
     else
         M.return Nothing
@@ -260,9 +263,9 @@ recordWLANSignalStrength world = do
         M.when (B.isJust (newItem infos)) $
             atomWrite
                 (wlanSignalStrengthLog world)
-                (lastX (itemsToKeep-1) l ++ [B.fromJust (newItem infos)])
+                (lastN (itemsToKeep-1) l ++ [B.fromJust (newItem infos)])
     log2 <- atomRead $ wlanSignalStrengthLog world
-    L.debugM logPrefix $ T.unpack $ "wlansig: " `T.append` T.pack (show (lastX 5 log2))
+    L.debugM logPrefix $ T.unpack $ "wlansig: " `T.append` T.pack (show (lastN 5 log2))
   where
     itemsToKeep = 100
     wif = wlanIf world

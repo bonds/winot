@@ -1,4 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE NoImplicitPrelude #-}
+-- {-# LANGUAGE BangPatterns #-}
 {-# OPTIONS_GHC -Wall -Werror #-}
 
 module Util where
@@ -73,6 +75,7 @@ firstIfAvailable prefix ifs = T.concat [prefix, T.pack (show $ fan numbers)]
 ping :: Int -> T.Text -> IO Bool
 ping = pingVia 0
 
+{-@ pingVia :: {r:Int | r >= 0} -> Int -> T.Text -> IO Bool @-}
 pingVia :: Int -> Int -> T.Text -> IO Bool
 pingVia rt count host
     | count < 1 = M.return False
@@ -86,8 +89,8 @@ detailOrEmpty :: Maybe IFInfo -> T.Text
 detailOrEmpty (Just x) = detail x
 detailOrEmpty Nothing = ""
 
-lastX :: Int -> [a] -> [a]
-lastX x l = reverse $ take x $ reverse l
+lastN :: Int -> [a] -> [a]
+lastN x l = reverse $ take x $ reverse l
 
 run :: T.Text -> IO ()
 run command = do

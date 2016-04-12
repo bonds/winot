@@ -1,7 +1,11 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE NoImplicitPrelude #-}
+{-# OPTIONS_GHC -Wall -Werror #-}
+
 module Loop where
 
 import Protolude
-import Prelude (($), take, (++), last)
+import Prelude (($), take, (++))
 import Control.Monad ((>>=), (>>))
 import Route
 import Util
@@ -126,7 +130,7 @@ mainLoop world = do
 
     world' <- recordLoopTimes world
     L.debugM logPrefix $ T.unpack $ "lastLoop: " `T.append` T.pack (show (headMay (loopTimes world')))
-    L.debugM logPrefix $ T.unpack $ "thisLoop: " `T.append` T.pack (show (last (loopTimes world')))
+    L.debugM logPrefix $ T.unpack $ "thisLoop: " `T.append` T.pack (show (lastMay (loopTimes world')))
 
     _ <- C.forkIO $ recordWLANSignalStrength world'
     _ <- C.forkIO $ recordWLANBandwidth world'

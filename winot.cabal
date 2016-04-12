@@ -32,9 +32,9 @@ library
     Monad
     Unsafe
 
-  default-extensions:
-    NoImplicitPrelude
-    OverloadedStrings
+  --default-extensions:
+    --NoImplicitPrelude
+    --OverloadedStrings
 
   ghc-options:
     -Wall
@@ -70,8 +70,8 @@ library
   default-language:    Haskell2010
 
 executable winot-exe
-  default-extensions:
-    NoImplicitPrelude
+  --default-extensions:
+    --NoImplicitPrelude
 
   ghc-options:
     -threaded

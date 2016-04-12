@@ -27,6 +27,8 @@ import Safe as X (
     headMay
   , initMay
   , tailMay
+  , atMay
+  , lastMay
   )
 
 -- Applicatives
