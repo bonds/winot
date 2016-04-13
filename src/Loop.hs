@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE BangPatterns #-}
 {-# OPTIONS_GHC -Wall -Werror #-}
 
 module Loop where
@@ -202,8 +203,6 @@ recordLoopTimes :: World -> IO World
 recordLoopTimes world = do
     let numOfTimestampsToKeep = 2
     time <- K.getTime K.Realtime
-    M.return world { loopTimes =
-        reverse (take (numOfTimestampsToKeep-1) $
-        reverse (loopTimes world)) ++ [K.sec time] }
-
+    let !newLoopTimes = reverse (take (numOfTimestampsToKeep-1) $ reverse (loopTimes world)) ++ [K.sec time]
+    M.return world { loopTimes = newLoopTimes }
 

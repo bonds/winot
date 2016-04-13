@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE BangPatterns #-}
 {-# OPTIONS_GHC -Wall -Werror #-}
 
 module Wlan where
@@ -232,9 +233,10 @@ recordWLANBandwidth world = do
         ni <- wlanBandwidth (wlanIf world)
         M.when (B.isJust ni) $ do
             l <- atomRead $ wlanBandwidthLog world
+            let !values = lastN (itemsToKeep-1) l ++ [read $ T.unpack $ B.fromJust ni]
             atomWrite
                 (wlanBandwidthLog world)
-                (lastN (itemsToKeep-1) l ++ [read $ T.unpack $ B.fromJust ni])
+                values
     log2 <- atomRead $ wlanBandwidthLog world
     L.debugM logPrefix $ T.unpack $ T.concat ["wlanbw: ", T.pack (show (lastN 5 log2))]
   where
@@ -260,10 +262,11 @@ recordWLANSignalStrength world = do
     M.when (wlanEnabled world && B.isJust wif) $ do
         l <- atomRead $ wlanSignalStrengthLog world
         infos <- atomRead $ interfaceList world
-        M.when (B.isJust (newItem infos)) $
+        M.when (B.isJust (newItem infos)) $ do
+            let !values = lastN (itemsToKeep-1) l ++ [B.fromJust (newItem infos)]
             atomWrite
                 (wlanSignalStrengthLog world)
-                (lastN (itemsToKeep-1) l ++ [B.fromJust (newItem infos)])
+                values
     log2 <- atomRead $ wlanSignalStrengthLog world
     L.debugM logPrefix $ T.unpack $ "wlansig: " `T.append` T.pack (show (lastN 5 log2))
   where
