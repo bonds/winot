@@ -46,8 +46,17 @@ connections at all times.
 
 * [how to setup a layer 3 VPN over SSH][2]
 
+## Alternatives
+
+* [wiconfig][1], a CLI for configuring wifi networks
+* [ifstated][4], a service for monitoring the network and running scripts when something changes
+* manually configure wwan using [pppd][5], wlan using [ifconfig][6], vpn [using ssh][2] or some other tool of your choice, and [route][7] for changing your default route
+
   [1]: https://github.com/devious/wiconfig
   [2]: http://www.kernel-panic.it/openbsd/vpn/vpn5.html
   [3]: http://docs.haskellstack.org/en/stable/README/
-
+  [4]: http://man.openbsd.org/OpenBSD-current/man8/ifstated.8
+  [5]: http://man.openbsd.org/OpenBSD-current/man8/pppd.8
+  [6]: http://man.openbsd.org/OpenBSD-current/man8/ifconfig.8
+  [7]: http://man.openbsd.org/OpenBSD-current/man8/route.8
 
