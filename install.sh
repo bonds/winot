@@ -1,15 +1,15 @@
 #!/bin/sh
 
-EXECPATH=$(find .stack-work/install -name "winot-exe")
+EXECPATH=$PWD/$(find .stack-work/install -name "winot-exe" | tail -1)
 
 if [[ `id -u` != 0 ]]; then
     echo "error: this script must be run by root"
     exit 1
 fi
 
-if [ -f $EXECPATH ]; then
-    echo installing winot
-    cp $EXECPATH /usr/local/bin/winot
+if [ -f "$EXECPATH" ]; then
+    echo installing winot exec from $EXECPATH
+    cp -f "$EXECPATH" /usr/local/bin/winot
     chown root:bin /usr/local/bin/winot
     chmod 555 /usr/local/bin/winot
 
