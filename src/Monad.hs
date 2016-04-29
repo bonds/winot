@@ -1,5 +1,3 @@
-{-# LANGUAGE NoImplicitPrelude #-}
-
 module Monad (
     Monad(..)
   , MonadPlus(..)

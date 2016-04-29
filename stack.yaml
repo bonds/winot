@@ -1,7 +1,7 @@
 # For more information, see: https://github.com/commercialhaskell/stack/blob/release/doc/yaml_configuration.md
 
 # Specifies the GHC version and set of packages available (e.g., lts-3.5, nightly-2015-09-21, ghc-7.10.2)
-resolver: lts-5.11
+resolver: lts-5.13
 
 # Local packages, usually specified by relative directory name
 packages:
@@ -12,6 +12,7 @@ extra-deps:
 - semiring-simple-1.0.0.1
 - string-conv-0.1
 - htoml-0.1.0.3
+- liquidhaskell-cabal-0.1.0.0
 
 # Override default flag values for local packages and extra-deps
 flags: {}
@@ -37,3 +38,5 @@ extra-package-dbs: []
 # Allow a newer minor version of GHC than the snapshot specifies
 # compiler-check: newer-minor
 
+explicit-setup-deps:
+  "*": true

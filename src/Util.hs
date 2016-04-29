@@ -1,8 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE NoImplicitPrelude #-}
--- {-# LANGUAGE BangPatterns #-}
-{-# OPTIONS_GHC -Wall -Werror #-}
-
 module Util where
 
 import Protolude

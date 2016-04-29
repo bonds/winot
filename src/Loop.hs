@@ -1,7 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE BangPatterns #-}
-{-# OPTIONS_GHC -Wall -Werror #-}
 
 module Loop where
 
