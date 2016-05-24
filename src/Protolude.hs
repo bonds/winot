@@ -245,7 +245,7 @@ import Text.Read as X (
   , readEither
   )
 
--- Type synonymss for lazy texts
+-- Type synonyms for lazy texts
 type LText = Data.Text.Lazy.Text
 type LByteString = Data.ByteString.Lazy.ByteString
 
@@ -265,7 +265,9 @@ uncons []     = Nothing
 uncons (x:xs) = Just (x, xs)
 
 applyN :: Int -> (a -> a) -> a -> a
-applyN n f = X.foldr (.) id (X.replicate n f)
+applyN n f
+    | n > 0 = X.foldr (.) id (X.replicate n f)
+    | otherwise = P.undefined
 
 print :: (X.MonadIO m, P.Show a) => a -> m ()
 print = liftIO . P.print
