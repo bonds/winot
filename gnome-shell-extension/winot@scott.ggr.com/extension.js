@@ -10,6 +10,8 @@ const Me = ExtensionUtils.getCurrentExtension();
 
 let text, button, event;
 let nic = 'iwm0';
+let lastStrengthBoundary = 100;
+let secondsBetweenSignalChecks = 2;
 
 function _hideHello() {
     Main.uiGroup.remove_actor(text);
@@ -54,18 +56,25 @@ function _getSignalStrength() {
 }
 
 function _updateStrengthIcon() {
+    let gicon, icon, iconSuffix;
     let strength = _getSignalStrength();
-    if (strength < 30) {
-        let gicon = Gio.icon_new_for_string(Me.path + "/icons/32/wifi-low.png");
-        let icon = new St.Icon({ gicon: gicon, icon_size: '32'});
-        button.set_child(icon);
-    } else if (strength < 60) {
-        let gicon = Gio.icon_new_for_string(Me.path + "/icons/32/wifi-mid.png");
-        let icon = new St.Icon({ gicon: gicon, icon_size: '32'});
-        button.set_child(icon);
-    } else {
-        let gicon = Gio.icon_new_for_string(Me.path + "/icons/32/wifi-full.png");
-        let icon = new St.Icon({ gicon: gicon, icon_size: '32'});
+
+    // avoid flipping back and forth when on a strength boundary
+    // e.g. 59, 60, 58, 61 will stay with the 'mid' icon the whole time
+    let strengthDiff = Math.abs(strength - lastStrengthBoundary);
+    if (strengthDiff > 5) {
+        if (strength < 30) {
+            iconSuffix = 'low'
+            lastStrengthBoundary = 30;
+        } else if (strength < 60) {
+            iconSuffix = 'mid'
+            lastStrengthBoundary = 60;
+        } else {
+            iconSuffix = 'full'
+            lastStrengthBoundary = 100;
+        }
+        gicon = Gio.icon_new_for_string(Me.path + "/icons/32/wifi-" + iconSuffix + ".png");
+        icon = new St.Icon({ gicon: gicon, icon_size: '32'});
         button.set_child(icon);
     }
     return true;
@@ -89,7 +98,7 @@ function init() {
 
 function enable() {
     Main.panel._rightBox.insert_child_at_index(button, 0);
-    event = GLib.timeout_add_seconds(0, 1, _updateStrengthIcon);
+    event = GLib.timeout_add_seconds(0, secondsBetweenSignalChecks, _updateStrengthIcon);
 }
 
 function disable() {
