@@ -1,6 +1,7 @@
 #!/bin/sh
 
 EXECPATH=$PWD/$(find .stack-work/install -name "winot-exe" | tail -1)
+GEUUID=winot@scott.ggr.com
 
 if [[ `id -u` != 0 ]]; then
     echo "error: this script must be run by root"
@@ -22,6 +23,14 @@ if [ -f "$EXECPATH" ]; then
     cp winot.rcd /etc/rc.d/winot
     chown root:wheel /etc/rc.d/winot
     chmod 555 /etc/rc.d/winot
+
+    gepath=/usr/local/share/gnome-shell/extensions/$GEUUID
+    mkdir -p $gepath
+    cp -fR gnome-shell-extension/$GEUUID/* $gepath/
+    find $gepath -type d -exec chown root:wheel "{}" \;
+    find $gepath -type d -exec chmod 755 "{}" \;
+    find $gepath -type f -exec chown root:bin "{}" \;
+    find $gepath -type f -exec chmod 444 "{}" \;
 
     echo done
     echo to start winot: doas rcctl start winot
