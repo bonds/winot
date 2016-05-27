@@ -80,11 +80,11 @@ outputStatus world = do
                                            Just wlif -> B.fromMaybe "" $ currentSSID wlif ifList
                                            Nothing   -> ""
                         , csWlanBSSID = case wlanIf world of
-                                           Just wlif -> B.fromMaybe "" $ currentBSSID wlif ifList
-                                           Nothing   -> ""
+                                            Just wlif -> B.fromMaybe "" $ currentBSSID wlif ifList
+                                            Nothing   -> ""
                         , csWlanStrength = case lastMay strengths of
-                                             Just s -> T.pack $ show s
-                                             Nothing -> ""
+                                               Just s -> T.pack $ show s
+                                               Nothing -> ""
                         , csVpn      = vpn world wlok vok
                         , csUpdated  = K.sec time
                         , csScanned  = lscan

@@ -142,9 +142,9 @@ mainLoop world = do
         (\ip -> if ip `T.isInfixOf` dr then ping 3 ip else M.return False)
         (configString "vpn_server_private_ip" world)
 
+    tryLockFork "interfaceListLock" (interfaceListLock world') (updateInterfaceList world')
     M.unless vpnok $ do
         tryLockFork "processListLock" (processListLock world') (updateProcessList world')
-        tryLockFork "interfaceListLock" (interfaceListLock world') (updateInterfaceList world')
         tryLockFork "checkWWANLock" (checkWWANLock world') (checkWWAN world')
         tryLockFork "checkWLANLock" (checkWLANLock world') (checkWLAN world')
         tryLockFork "checkVPNLock" (checkVPNLock world') (checkVPN world')

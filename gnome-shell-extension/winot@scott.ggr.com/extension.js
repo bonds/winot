@@ -8,7 +8,7 @@ const Gio = imports.gi.Gio;
 const ExtensionUtils = imports.misc.extensionUtils;
 const Me = ExtensionUtils.getCurrentExtension();
 
-let text, button, event;
+let text, button, event, status;
 let nic = 'iwm0';
 let lastStrengthBoundary = 100;
 let secondsBetweenSignalChecks = 2;
@@ -39,11 +39,12 @@ function _showHello() {
 }
 
 function _choose_wlan_icon(strength) {
-    let iconSuffix, iconName;
+    let iconSuffix;
 
     // avoid flipping back and forth when on a strength boundary
     // e.g. 59, 60, 58, 61 will stay with the 'mid' icon the whole time
     let strengthDiff = Math.abs(strength - lastStrengthBoundary);
+    //log("strength: " + strength);
     if (strengthDiff > 5) {
         if (strength < 30) {
             iconSuffix = 'low';
@@ -71,41 +72,49 @@ function _choose_wlan_icon(strength) {
     return 'wifi-' + iconSuffix;
 }
 
-// TODO: if data is more than 5 seconds stale, use 'None' icon
-function _updateIcon() {
-    let gicon, icon, iconName;
+function _updateStatus() {
     // not reliable, there's a race condition with writing and reading file
     // that's why we're using the try-catch block
     // TODO: use a more reliable inter-process messaging bus
     try {
         let [res, out] = GLib.file_get_contents('/var/winot/status');
         if (res) {
-            let doc = JSON.parse(out);
-            switch (doc.csUsing) {
-                case 'None':
-                    iconName = 'spam';
-                    break;
-                case 'WWAN':
-                    iconName = 'transfer';
-                    break;
-                case 'WLAN':
-                    iconName = _choose_wlan_icon(doc.csWlanStrength);
-                    break;
-                case 'VPN':
-                    iconName = _choose_wlan_icon(doc.csWlanStrength);
-                    break;
-            }
+            status = JSON.parse(out);
         } else {
             throw 'could not read status file';
         }
     }
     catch(err) {
+        status = null;
+    }
+    _updateIcon();
+    return true;
+}
+
+// TODO: if data is more than 5 seconds stale, use 'None' icon
+function _updateIcon() {
+    let gicon, icon, iconName;
+    if (status != null) {
+        switch (status.csUsing) {
+            case 'None':
+                iconName = 'spam';
+                break;
+            case 'WWAN':
+                iconName = 'transfer';
+                break;
+            case 'WLAN':
+                iconName = _choose_wlan_icon(status.csWlanStrength);
+                break;
+            case 'VPN':
+                iconName = _choose_wlan_icon(status.csWlanStrength);
+                break;
+        }
+    } else {
         iconName = 'spam';
     }
     gicon = Gio.icon_new_for_string(Me.path + "/icons/32/" + iconName + ".png");
     icon = new St.Icon({ gicon: gicon, icon_size: '32'});
     button.set_child(icon);
-    return true;
 }
 
 function init() {
@@ -126,7 +135,7 @@ function init() {
 
 function enable() {
     Main.panel._rightBox.insert_child_at_index(button, 0);
-    event = GLib.timeout_add_seconds(0, secondsBetweenSignalChecks, _updateIcon);
+    event = GLib.timeout_add_seconds(0, secondsBetweenSignalChecks, _updateStatus);
 }
 
 function disable() {
