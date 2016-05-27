@@ -20,7 +20,7 @@ function _hideHello() {
 
 function _showHello() {
     if (!text) {
-        text = new St.Label({ style_class: 'helloworld-label', text: _getSignalStrength()});
+        text = new St.Label({ style_class: 'helloworld-label', text: 'hello, world' });
         Main.uiGroup.add_actor(text);
     }
 
@@ -38,45 +38,73 @@ function _showHello() {
                        onComplete: _hideHello });
 }
 
-function _getSignalStrength() {
-    let [res, out, err, status] = GLib.spawn_sync(null, ['/sbin/ifconfig', nic], null, GLib.SpawnFlags.DEFAULT, null);
-    if (status == 0) {
-        let outStr = String.fromCharCode.apply(String, out).trim();
-        let match = /(\d{1,2})%/.exec(outStr)
-        if (match != null) {
-            return match[1]
-        } else {
-            log("could not parse ifconfig output")
-            return 0
-        }
-    } else {
-        log("trouble getting signal strength")
-        return 0
-    }
-}
-
-function _updateStrengthIcon() {
-    let gicon, icon, iconSuffix;
-    let strength = _getSignalStrength();
+function _choose_wlan_icon(strength) {
+    let iconSuffix, iconName;
 
     // avoid flipping back and forth when on a strength boundary
     // e.g. 59, 60, 58, 61 will stay with the 'mid' icon the whole time
     let strengthDiff = Math.abs(strength - lastStrengthBoundary);
     if (strengthDiff > 5) {
         if (strength < 30) {
-            iconSuffix = 'low'
+            iconSuffix = 'low';
             lastStrengthBoundary = 30;
         } else if (strength < 60) {
-            iconSuffix = 'mid'
+            iconSuffix = 'mid';
             lastStrengthBoundary = 60;
         } else {
-            iconSuffix = 'full'
+            iconSuffix = 'full';
             lastStrengthBoundary = 100;
         }
-        gicon = Gio.icon_new_for_string(Me.path + "/icons/32/wifi-" + iconSuffix + ".png");
-        icon = new St.Icon({ gicon: gicon, icon_size: '32'});
-        button.set_child(icon);
+    } else {
+        switch (lastStrengthBoundary) {
+            case 30:
+                iconSuffix = 'low';
+                break;
+            case 60:
+                iconSuffix = 'mid';
+                break;
+            case 100:
+                iconSuffix = 'full';
+                break;
+        }
     }
+    return 'wifi-' + iconSuffix;
+}
+
+// TODO: if data is more than 5 seconds stale, use 'None' icon
+function _updateIcon() {
+    let gicon, icon, iconName;
+    // not reliable, there's a race condition with writing and reading file
+    // that's why we're using the try-catch block
+    // TODO: use a more reliable inter-process messaging bus
+    try {
+        let [res, out] = GLib.file_get_contents('/var/winot/status');
+        if (res) {
+            let doc = JSON.parse(out);
+            switch (doc.csUsing) {
+                case 'None':
+                    iconName = 'spam';
+                    break;
+                case 'WWAN':
+                    iconName = 'transfer';
+                    break;
+                case 'WLAN':
+                    iconName = _choose_wlan_icon(doc.csWlanStrength);
+                    break;
+                case 'VPN':
+                    iconName = _choose_wlan_icon(doc.csWlanStrength);
+                    break;
+            }
+        } else {
+            throw 'could not read status file';
+        }
+    }
+    catch(err) {
+        iconName = 'spam';
+    }
+    gicon = Gio.icon_new_for_string(Me.path + "/icons/32/" + iconName + ".png");
+    icon = new St.Icon({ gicon: gicon, icon_size: '32'});
+    button.set_child(icon);
     return true;
 }
 
@@ -98,7 +126,7 @@ function init() {
 
 function enable() {
     Main.panel._rightBox.insert_child_at_index(button, 0);
-    event = GLib.timeout_add_seconds(0, secondsBetweenSignalChecks, _updateStrengthIcon);
+    event = GLib.timeout_add_seconds(0, secondsBetweenSignalChecks, _updateIcon);
 }
 
 function disable() {

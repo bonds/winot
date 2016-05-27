@@ -70,6 +70,7 @@ firstIfAvailable prefix ifs = T.concat [prefix, T.pack (show $ fan numbers)]
 ping :: Int -> T.Text -> IO Bool
 ping = pingVia 0
 
+{-@ pingVia :: Nat -> count:Int -> T.Text -> IO Bool / [count] @-}
 pingVia :: Int -> Int -> T.Text -> IO Bool
 pingVia rt count host
     | count < 1 = M.return False

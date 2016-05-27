@@ -1,6 +1,6 @@
 #!/bin/sh
 
-EXECPATH=$PWD/$(find .stack-work/install -name "winot-exe" | tail -1)
+EXECPATH=$PWD/$(find .stack-work/install -name "winot-exe" | sort | tail -1)
 GEUUID=winot@scott.ggr.com
 
 if [[ `id -u` != 0 ]]; then

@@ -203,6 +203,11 @@ currentSSID wlif infos = case U.find (U.regex [U.Multiline] "nwid (.*) chan") (w
                            Just m -> U.group 1 m
                            _      -> Nothing
 
+currentBSSID :: T.Text -> [IFInfo] -> Maybe T.Text
+currentBSSID wlif infos = case U.find (U.regex [U.Multiline] "bssid (.*) [0-9]{1,2}%") (wlanIfconfig wlif infos) of
+                            Just m -> U.group 1 m
+                            _      -> Nothing
+
 chooseWLANIf :: World -> IO (Maybe T.Text)
 chooseWLANIf world = do
     let logPrefix = "winot.chooseWLANIf"

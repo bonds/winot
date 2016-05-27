@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveGeneric #-}
+
 module World where
 
 import Protolude
@@ -8,6 +10,8 @@ import qualified Data.Text as T
 import qualified GHC.Int as G
 import qualified Text.Toml as O
 import qualified Text.Toml.Types as O
+import qualified GHC.Generics as N
+import qualified Data.Aeson as A
 
 default (T.Text)
 
@@ -36,6 +40,7 @@ data World = World { config :: O.Table
                    , wlanOK :: S.TVar Bool
                    , wwanIf :: Maybe T.Text
                    , wwanOK :: S.TVar Bool
+                   , routeVia :: S.TVar ConnectionMedium
                    {-, loggerSet :: L.LoggerSet-}
                    }
 
@@ -55,6 +60,8 @@ data APInfo = APInfo { ssid :: T.Text
                      , raw :: T.Text
                      } deriving (Show, Eq)
 
+data ConnectionMedium = None | WWAN | WLAN | VPN deriving (Show, N.Generic)
+instance A.ToJSON ConnectionMedium
 
 initialWorld :: IO (Maybe World)
 initialWorld = do
@@ -78,6 +85,7 @@ initialWorld = do
     l6 <- S.atomically S.newEmptyTMVar
     l7 <- S.atomically S.newEmptyTMVar
     l10 <- S.atomically S.newEmptyTMVar
+    rv <- S.atomically $ S.newTVar None
     {-lset <- L.newFileLoggerSet L.defaultBufSize "/var/log/winot2"-}
 
     con <- readFile "/etc/winot"
@@ -110,6 +118,7 @@ initialWorld = do
                                      , lastVPNConnect = lvc
                                      , lastWWANConnect = lwwc
                                      , lastWLANConnect = lwlc
+                                     , routeVia = rv
                                      {-, loggerSet = lset-}
                                      }
 

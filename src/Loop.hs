@@ -6,6 +6,7 @@ import Protolude
 import Prelude (($), take, (++))
 import Control.Monad ((>>=), (>>))
 import Route
+import Status
 import Util
 import Vpn
 import Wlan
@@ -25,6 +26,7 @@ import qualified System.Log.Handler.Simple as LH
 import qualified System.Log.Logger as L
 import qualified System.Posix.Process as P
 import qualified System.Posix.Signals as P
+import qualified System.Directory as SD
 
 default (Text, Integer, Double)
 
@@ -43,6 +45,7 @@ loop = do
     w <- initialWorld
     M.when (B.isNothing w) (E.die "could not parse config, probably")
     let world = B.fromJust w
+    SD.createDirectoryIfMissing False "/var/winot"
 
     -- log to a file
 
@@ -140,14 +143,15 @@ mainLoop world = do
         (configString "vpn_server_private_ip" world)
 
     M.unless vpnok $ do
-        tryLockFork "processListLock" (processListLock world) (updateProcessList world')
-        tryLockFork "interfaceListLock" (interfaceListLock world) (updateInterfaceList world')
-        tryLockFork "checkWWANLock" (checkWWANLock world) (checkWWAN world')
-        tryLockFork "checkWLANLock" (checkWLANLock world) (checkWLAN world')
-        tryLockFork "checkVPNLock" (checkVPNLock world) (checkVPN world')
-        tryLockFork "checkRoute" (checkRouteLock world) (checkRoute world')
+        tryLockFork "processListLock" (processListLock world') (updateProcessList world')
+        tryLockFork "interfaceListLock" (interfaceListLock world') (updateInterfaceList world')
+        tryLockFork "checkWWANLock" (checkWWANLock world') (checkWWAN world')
+        tryLockFork "checkWLANLock" (checkWLANLock world') (checkWLAN world')
+        tryLockFork "checkVPNLock" (checkVPNLock world') (checkVPN world')
+        tryLockFork "checkRoute" (checkRouteLock world') (checkRoute world')
         M.return ()
 
+    _ <- outputStatus world'
     _ <- D.delay $ secondsBetweenLoops * (10 :: Integer) ^ (6 :: Integer)
     M.return world'
 

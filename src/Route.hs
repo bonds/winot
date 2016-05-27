@@ -28,6 +28,7 @@ checkRoute world = do
             L.debugM logPrefix "route choice: vpnok"
             rl <- atomRead (routeList world)
             setDefaultRoute rl (B.fromJust ip)
+            atomWrite (routeVia world) VPN
         else do
             L.debugM logPrefix "route choice: vpnbad"
             let wovpn = configString "wlan_without_vpn_enabled" world
@@ -35,6 +36,7 @@ checkRoute world = do
                 L.debugM logPrefix "route choice: wovpn"
                 rl <- atomRead (routeList world)
                 setDefaultRoute rl (B.fromJust wlg)
+                atomWrite (routeVia world) WLAN
             else do
                 L.debugM logPrefix "route choice: nowovpn"
                 tryWWAN world
@@ -56,6 +58,7 @@ checkRoute world = do
                 if B.isJust wg then do
                     L.debugM logPrefix "route choice: wgok"
                     setDefaultRoute rl (B.fromJust wg)
+                    atomWrite (routeVia world) WWAN
                 else do
                     L.debugM logPrefix "route choice: wgbad"
                     L.errorM logPrefix "wwan is ok but no wwan gateway?!"
@@ -63,15 +66,18 @@ checkRoute world = do
                     L.debugM logPrefix $ T.unpack $ T.concat [".... rl is ", rl]
                     clearDefaultRoute rl
                     clearVPNRoute world
+                    atomWrite (routeVia world) None
             else do
                 L.debugM logPrefix "route choice: wifbad"
                 L.errorM logPrefix "wwan is ok but no wwan interface?!"
                 clearDefaultRoute rl
                 clearVPNRoute world
+                atomWrite (routeVia world) None
         else do
             L.debugM logPrefix "route choice: wwanbad"
             clearDefaultRoute rl
             clearVPNRoute world
+            atomWrite (routeVia world) None
 
 routeVPNViaWLAN :: T.Text -> Maybe T.Text -> World -> IO ()
 routeVPNViaWLAN rl wlg world = do
