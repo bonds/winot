@@ -72,22 +72,34 @@ function _choose_wlan_icon(strength) {
     return 'wifi-' + iconSuffix;
 }
 
-function _updateStatus() {
+function _updateStatus(retry) {
     // not reliable, there's a race condition with writing and reading file
-    // that's why we're using the try-catch block
+    // that's why we're using the try-catch block and the retries
     // TODO: use a more reliable inter-process messaging bus
+    let ok = false;
+    let retryAfterXMilliseconds = 250;
+
+    if (retry == null) {
+        retry == 4
+    }
     try {
         let [res, out] = GLib.file_get_contents('/var/winot/status');
         if (res) {
             status = JSON.parse(out);
-        } else {
-            throw 'could not read status file';
+            ok = true;
         }
     }
-    catch(err) {
-        status = null;
+    catch(err) {}
+
+    if (ok) {
+        _updateIcon();
+    } else {
+        if (retry > 0) {
+            setTimeOut(_updateStatus(retry-1, retryAfterXMilliseconds))
+        } else {
+            status = null;
+        }
     }
-    _updateIcon();
     return true;
 }
 
