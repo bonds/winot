@@ -46,20 +46,21 @@ instance A.ToJSON BSSID
 instance A.ToJSON ConnectionStatus
 
 apsToNetworks :: [APInfo] -> [WLANNetwork]
-apsToNetworks aps = snd $ helper (aps, [])
+apsToNetworks aps = snd $ helper aps []
   where
-    helper :: ([APInfo], [WLANNetwork]) -> ([APInfo], [WLANNetwork])
-    helper ((a:as),ns) = helper (as, (ns ++ [WLANNetwork { csSsid = ssid a
+    {-@ helper :: aps:[APInfo] -> [WLANNetwork] -> ([APInfo], [WLANNetwork]) / [len aps] @-}
+    helper :: [APInfo] -> [WLANNetwork] -> ([APInfo], [WLANNetwork])
+    helper (a:as) ns = helper as (ns ++ [WLANNetwork { csSsid = ssid a
                                                        , csBssids = [ BSSID { csBssid = bssid a
                                                                             , csStrength = strength a
                                                                             }
                                                                     ] ++ blist (ssid a) ns
-                                                       }]))
+                                                       }])
       where
         blist s n = case find (\x -> csSsid x == s) n of
                        Just l -> csBssids l
                        Nothing -> []
-    helper (_,ns) = ([],ns)
+    helper _ ns = ([],ns)
 
 outputStatus :: World -> IO ()
 outputStatus world = do

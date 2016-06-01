@@ -159,18 +159,18 @@ parseInterfaceList il = list
     list = [IFInfo { name = fst record
                    , detail = T.unlines $ snd record
                    }
-           | record <- snd $ infos (T.lines il, [])]
-    infos :: ([T.Text], [(T.Text, [T.Text])]) -> ([T.Text], [(T.Text, [T.Text])])
-    infos ([], records) = ([], records)
-    infos (x:xs, records)
-        | startsWithInterfaceName = infos (xs, records ++ [(interfaceName, [x])])
-        | otherwise = infos (xs, initOrEmpty records ++ [(currentName, currentDetail ++ [x])])
-      where
+           | record <- snd $ infos (T.lines il) []]
+    {-@ infos :: i:[T.Text] -> [(T.Text, [T.Text])] -> ([T.Text], [(T.Text, [T.Text])]) / [len i] @-}
+    infos :: [T.Text] -> [(T.Text, [T.Text])] -> ([T.Text], [(T.Text, [T.Text])])
+    infos [] records = ([], records)
+    infos (x:xs) records
+        | startsWithInterfaceName = infos xs $ records ++ [(interfaceName, [x])]
+        | otherwise = case lastMay records of
+              Just currentRecord -> infos xs $ initOrEmpty records ++ [(fst currentRecord, snd currentRecord ++ [x])]
+              Nothing            -> infos xs records
+        where
         startsWithInterfaceName = B.isJust (U.find (U.regex [] "^[a-zA-Z]*[0-9]: ") x)
         interfaceName = B.fromJust (U.group 0 (B.fromJust (U.find (U.regex [] "^[a-zA-Z]*[0-9]") x)))
-        currentRecord = last records
-        currentName = fst currentRecord
-        currentDetail = snd currentRecord
 
 initOrEmpty :: [a] -> [a]
 initOrEmpty x = reverse $ drop 1 $ reverse x -- gives a empty list if less than 2 in list
