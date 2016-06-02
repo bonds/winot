@@ -11,6 +11,7 @@ const Me = ExtensionUtils.getCurrentExtension();
 let text, button, event, status;
 let nic = 'iwm0';
 let lastStrengthBoundary = 100;
+let lastUsing = 'None';
 let secondsBetweenSignalChecks = 2;
 
 function _hideHello() {
@@ -105,7 +106,7 @@ function _updateStatus(retry) {
 
 // TODO: if data is more than 5 seconds stale, use 'None' icon
 function _updateIcon() {
-    let gicon, icon, iconName;
+    let gicon, icon, iconName, message;
     if (status != null) {
         switch (status.csUsing) {
             case 'None':
@@ -120,6 +121,11 @@ function _updateIcon() {
             case 'VPN':
                 iconName = _choose_wlan_icon(status.csWlanStrength);
                 break;
+        }
+        if (status.csUsing != lastUsing) {
+            message = "connected via " + status.csUsing;
+            GLib.spawn_command_line_async("notify-send --app-name=winot --icon=" + Me.path + "/icons/32/wifi-full.png '" + message + "'");
+            lastUsing = status.csUsing;
         }
     } else {
         iconName = 'spam';
