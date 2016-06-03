@@ -12,6 +12,7 @@ let text, button, event, status;
 let nic = 'iwm0';
 let lastStrengthBoundary = 100;
 let lastUsing = 'None';
+let lastStatus = 0;
 let secondsBetweenSignalChecks = 2;
 
 function _hideHello() {
@@ -84,9 +85,13 @@ function _updateStatus(retry) {
         retry == 4
     }
     try {
-        let [res, out] = GLib.file_get_contents('/var/winot/status');
-        if (res) {
-            status = JSON.parse(out);
+        let [res1, timestamp,,] = GLib.spawn_command_line_sync('stat -f "%a" /var/winot/status');
+        let [res2, statusRaw] = GLib.file_get_contents('/var/winot/status');
+        if (res1 && res2) {
+            // timestamp isn't a string until I concat it to a string
+            // which I do so I can use trim()
+            lastStatus = (timestamp + "").trim();
+            status = JSON.parse(statusRaw);
             ok = true;
         }
     }
@@ -104,10 +109,13 @@ function _updateStatus(retry) {
     return true;
 }
 
-// TODO: if data is more than 5 seconds stale, use 'None' icon
 function _updateIcon() {
     let gicon, icon, iconName, message;
-    if (status != null) {
+    let now = Math.floor(GLib.get_real_time()/1000000);
+    if ((now - lastStatus) > 5) {
+        // if the status file is stale, assume the worst
+        iconName = 'spam';
+    } else if (status != null) {
         switch (status.csUsing) {
             case 'None':
                 iconName = 'spam';
