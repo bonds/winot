@@ -1,4 +1,5 @@
 [![Build Status](https://travis-ci.org/bonds/winot.svg?branch=master)](https://travis-ci.org/bonds/winot)
+[![Coverage Status](https://coveralls.io/repos/github/bonds/winot/badge.svg?branch=master)](https://coveralls.io/github/bonds/winot?branch=master)
 
 This is a service for OpenBSD that keeps you connected to your wireless
 connections at all times.
