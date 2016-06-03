@@ -128,7 +128,7 @@ script:
 - |
   case "$BUILD" in
     stack)
-      stack --no-terminal $ARGS test --haddock --no-haddock-deps
+      stack --no-terminal --coverage $ARGS test --haddock --no-haddock-deps
       ;;
     cabal)
       cabal configure --enable-tests --enable-library-coverage --enable-benchmarks -v2 --ghc-options="-O0 -Werror"
@@ -146,8 +146,8 @@ after_script:
 - |
   case "$BUILD" in
     stack)
-      stack install hpc-coveralls
-      hpc-coveralls winot-test
+      stack install stack-hpc-coveralls
+      shc winot winot-test
       ;;
     cabal)
       cabal install hpc-coveralls
