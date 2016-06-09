@@ -173,5 +173,5 @@ parseInterfaceList il = list
         interfaceName = B.fromJust (U.group 0 (B.fromJust (U.find (U.regex [] "^[a-zA-Z]*[0-9]") x)))
 
 initOrEmpty :: [a] -> [a]
-initOrEmpty x = reverse $ drop 1 $ reverse x -- gives a empty list if less than 2 in list
+initOrEmpty = reverse . drop 1 . reverse -- gives a empty list if less than 2 in list
 

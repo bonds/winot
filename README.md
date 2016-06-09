@@ -16,6 +16,7 @@ connections at all times.
   brave and/or safe and/or you can live without it
 * notices when your wifi signal is weak, scans for a stronger BSSID, and
   connects to it
+* status bar icon that shows your connection status (requires Gnome)
 
 # Installation
 
@@ -33,6 +34,7 @@ connections at all times.
 
 * an SSH server with tunneling enabled
 * an SSH agent running with the credentials for accessing your SSH server loaded
+* Gnome, to get the status bar icon
 
 ## Let's Install It Already
 
