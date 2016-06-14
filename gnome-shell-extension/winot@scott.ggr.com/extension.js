@@ -1,15 +1,27 @@
+// -*- mode: js2; indent-tabs-mode: nil; js2-basic-offset: 4 -*-
 
-const St = imports.gi.St;
-const Main = imports.ui.main;
-const Mainloop = imports.mainloop;
-const Tweener = imports.ui.tweener;
-const GLib = imports.gi.GLib;
 const Gio = imports.gi.Gio;
+const GLib = imports.gi.GLib;
+const Meta = imports.gi.Meta;
+const Clutter = imports.gi.Clutter;
+const St = imports.gi.St;
+const Lang = imports.lang;
+const Mainloop = imports.mainloop;
+const PanelMenu = imports.ui.panelMenu;
+const PopupMenu = imports.ui.popupMenu;
+const Panel = imports.ui.panel;
+
+const Gettext = imports.gettext.domain('gnome-shell-extensions');
+const _ = Gettext.gettext;
+
+const Main = imports.ui.main;
+
 const ExtensionUtils = imports.misc.extensionUtils;
 const Me = ExtensionUtils.getCurrentExtension();
 
-let text, button, event, status;
-let nic = 'iwm0';
+
+
+let text, _indicator, event, status;
 let lastStrengthBoundary = 100;
 let lastUsing = 'None';
 let lastStatus = 0;
@@ -74,97 +86,180 @@ function _choose_wlan_icon(strength) {
     return 'wifi-' + iconSuffix;
 }
 
-function _updateStatus(retry) {
-    // not reliable, there's a race condition with writing and reading file
-    // that's why we're using the try-catch block and the retries
-    // TODO: use a more reliable inter-process messaging bus
-    let ok = false;
-    let retryAfterXMilliseconds = 250;
+const NetworkIndicator = new Lang.Class({
+    Name: 'NetworkIndicator.NetworkIndicator',
+    Extends: PanelMenu.Button,
 
-    if (retry == null) {
-        retry == 4
-    }
-    try {
-        let [res1, timestamp,,] = GLib.spawn_command_line_sync('stat -f "%a" /var/winot/status');
-        let [res2, statusRaw] = GLib.file_get_contents('/var/winot/status');
-        if (res1 && res2) {
-            // timestamp isn't a string until I concat it to a string
-            // which I do so I can use trim()
-            lastStatus = (timestamp + "").trim();
-            status = JSON.parse(statusRaw);
-            ok = true;
+    _init: function(){
+        this.parent(0.0, _("Network Indicator"));
+        _indicator = this;
+
+        let gicon = Gio.icon_new_for_string(Me.path + "/icons/32/spam.png");
+        this.icon = new St.Icon({ gicon: gicon, icon_size: '32' });
+        this.actor.add_child(this.icon);
+
+        this.workspacesItems = [];
+        this._workspaceSection = new PopupMenu.PopupMenuSection();
+        this.menu.addMenuItem(this._workspaceSection);
+        this._updateStatus();
+        this._createWorkspacesSection();
+        this._updateIcon();
+
+    },
+
+    destroy: function() {
+        for (let i = 0; i < this._screenSignals.length; i++)
+            global.screen.disconnect(this._screenSignals[i]);
+
+        if (this._settingsChangedId) {
+            this._settings.disconnect(this._settingsChangedId);
+            this._settingsChangedId = 0;
         }
-    }
-    catch(err) {}
 
-    if (ok) {
-        _updateIcon();
-    } else {
-        if (retry > 0) {
-            setTimeOut(_updateStatus(retry-1, retryAfterXMilliseconds))
+        this.parent();
+    },
+
+    _updateIndicator: function() {
+        log('here2');
+    },
+
+    _createWorkspacesSection : function() {
+        _indicator._workspaceSection.removeAll();
+        log('here1' + _indicator.status);
+        if (_indicator.status != null) {
+            log('here4' + _indicator.status);
+            let networks = [];
+            _indicator.workspacesItems = [];
+            _indicator._currentWorkspace = global.screen.get_active_workspace().index();
+
+            let i,j,k;
+            for(i=0; i < _indicator.status.csNetworks.length; i++) {
+                let ssid = _indicator.status.csNetworks[i].csSsid 
+                if (ssid == '') {
+                    continue;
+                }
+                let bssids = _indicator.status.csNetworks[i].csBssids
+                let strength = 0;
+                for(j=0; j < bssids.length; j++) {
+                    let bssid = bssids[j];
+                    if (bssid.csStrength > strength) {
+                        strength = bssid.csStrength;
+                    }
+                }
+                networks.push({'ssid': ssid, 'strength': strength});
+            }
+            networks = networks.sort(function(a,b) {
+              return parseFloat(b.strength) - parseFloat(a.strength);
+            });
+            for(i=0; i < networks.length; i++) {
+                let network = networks[i];
+                _indicator.workspacesItems[i] = new PopupMenu.PopupMenuItem(network.strength + ' ' + network.ssid);
+                _indicator._workspaceSection.addMenuItem(_indicator.workspacesItems[i]);
+                _indicator.workspacesItems[i].workspaceId = i;
+                let self = _indicator;
+                _indicator.workspacesItems[i].connect('activate', Lang.bind(_indicator, function(actor, event) {
+                    _indicator._activate(actor.workspaceId);
+                }));
+            }
+            let now = Math.floor(GLib.get_real_time()/1000000);
+            let since = now - _indicator.status.csScanned; 
+
+            _indicator.workspacesItems[networks.length] = new PopupMenu.PopupMenuItem('');
+            _indicator._workspaceSection.addMenuItem(_indicator.workspacesItems[networks.length]);
+            _indicator.workspacesItems[networks.length+1] = new PopupMenu.PopupMenuItem('updated ' + since + ' seconds ago');
+            _indicator._workspaceSection.addMenuItem(_indicator.workspacesItems[networks.length+1]);
+        }
+    },
+
+    _activate : function (index) {
+        if(index >= 0 && index <  global.screen.n_workspaces) {
+            let metaWorkspace = global.screen.get_workspace_by_index(index);
+            metaWorkspace.activate(global.get_current_time());
+        }
+    },
+
+    _updateStatus : function (retry) {
+        // not reliable, there's a race condition with writing and reading file
+        // that's why we're using the try-catch block and the retries
+        // TODO: use a more reliable inter-process messaging bus
+        let ok = false;
+        let retryAfterXMilliseconds = 250;
+
+        if (retry == null) {
+            retry == 4
+        }
+        try {
+            let [res1, timestamp,,] = GLib.spawn_command_line_sync('stat -f "%a" /var/winot/status');
+            let [res2, statusRaw] = GLib.file_get_contents('/var/winot/status');
+            if (res1 && res2) {
+                // timestamp isn't a string until I concat it to a string
+                // which I do so I can use trim()
+                _indicator.lastStatus = (timestamp + "").trim();
+                _indicator.status = JSON.parse(statusRaw);
+                ok = true;
+            }
+        }
+        catch(err) {}
+
+        if (ok) {
+            log('status updated');
+            _indicator._updateIcon();
+            _indicator._createWorkspacesSection();
         } else {
-            status = null;
+            if (retry > 0) {
+                setTimeOut(_updateStatus(retry-1, retryAfterXMilliseconds))
+            } else {
+                this.status = null;
+            }
         }
-    }
-    return true;
-}
+        return true;
+    },
 
-function _updateIcon() {
-    let gicon, icon, iconName, message;
-    let now = Math.floor(GLib.get_real_time()/1000000);
-    if ((now - lastStatus) > 5) {
-        // if the status file is stale, assume the worst
-        iconName = 'spam';
-    } else if (status != null) {
-        switch (status.csUsing) {
-            case 'None':
-                iconName = 'spam';
-                break;
-            case 'WWAN':
-                iconName = 'transfer';
-                break;
-            case 'WLAN':
-                iconName = _choose_wlan_icon(status.csWlanStrength);
-                break;
-            case 'VPN':
-                iconName = _choose_wlan_icon(status.csWlanStrength);
-                break;
+    _updateIcon : function() {
+        let gicon, icon, iconName, message;
+        let now = Math.floor(GLib.get_real_time()/1000000);
+        if ((now - _indicator.lastStatus) > 5) {
+            // if the status file is stale, assume the worst
+            iconName = 'spam';
+        } else if (_indicator.status != null) {
+            switch (_indicator.status.csUsing) {
+                case 'None':
+                    iconName = 'spam';
+                    break;
+                case 'WWAN':
+                    iconName = 'transfer';
+                    break;
+                case 'WLAN':
+                    iconName = _choose_wlan_icon(_indicator.status.csWlanStrength);
+                    break;
+                case 'VPN':
+                    iconName = _choose_wlan_icon(_indicator.status.csWlanStrength);
+                    break;
+            }
+            if (_indicator.status.csUsing != lastUsing) {
+                message = "connected via " + _indicator.status.csUsing;
+                GLib.spawn_command_line_async("notify-send --app-name=winot --icon=" + Me.path + "/icons/32/wifi-full.png '" + message + "'");
+                lastUsing = _indicator.status.csUsing;
+            }
+        } else {
+            iconName = 'spam';
         }
-        if (status.csUsing != lastUsing) {
-            message = "connected via " + status.csUsing;
-            GLib.spawn_command_line_async("notify-send --app-name=winot --icon=" + Me.path + "/icons/32/wifi-full.png '" + message + "'");
-            lastUsing = status.csUsing;
-        }
-    } else {
-        iconName = 'spam';
-    }
-    gicon = Gio.icon_new_for_string(Me.path + "/icons/32/" + iconName + ".png");
-    icon = new St.Icon({ gicon: gicon, icon_size: '32'});
-    button.set_child(icon);
-}
+        gicon = Gio.icon_new_for_string(Me.path + "/icons/32/" + iconName + ".png");
+        icon = new St.Icon({ gicon: gicon, icon_size: '32'});
+        _indicator.actor.remove_all_children();
+        _indicator.actor.add_child(icon);
+    },
 
-function init() {
-    button = new St.Bin({ style_class: 'panel-button',
-                          reactive: true,
-                          can_focus: true,
-                          x_fill: true,
-                          y_fill: false,
-                          track_hover: true });
-        let gicon = Gio.icon_new_for_string(Me.path + "/icons/32/wifi-full.png");
-        let icon = new St.Icon({ gicon: gicon, icon_size: '32'});
-        //let icon = new St.Icon({ icon_name: 'system-run-symbolic',
-                             //style_class: 'system-status-icon' });
-
-    button.set_child(icon);
-    button.connect('button-press-event', _showHello);
-}
+});
 
 function enable() {
-    Main.panel._rightBox.insert_child_at_index(button, 0);
-    event = GLib.timeout_add_seconds(0, secondsBetweenSignalChecks, _updateStatus);
+    _indicator = new NetworkIndicator;
+    Main.panel.addToStatusArea('network-indicator', _indicator);
+    event = GLib.timeout_add_seconds(0, secondsBetweenSignalChecks, _indicator._updateStatus);
 }
 
 function disable() {
-    Main.panel._rightBox.remove_child(button);
+    _indicator.destroy();
     Mainloop.source_remove(event);
 }
+

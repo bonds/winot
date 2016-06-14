@@ -50,13 +50,14 @@ apsToNetworks aps = snd $ helper aps []
   where
     {-@ helper :: aps:[APInfo] -> [WLANNetwork] -> ([APInfo], [WLANNetwork]) / [len aps] @-}
     helper :: [APInfo] -> [WLANNetwork] -> ([APInfo], [WLANNetwork])
-    helper (a:as) ns = helper as (ns ++ [WLANNetwork { csSsid = ssid a
+    helper (a:as) ns = helper as ((newNs (ssid a) ns) ++ [WLANNetwork { csSsid = ssid a
                                                        , csBssids = [ BSSID { csBssid = bssid a
                                                                             , csStrength = strength a
                                                                             }
                                                                     ] ++ blist (ssid a) ns
                                                        }])
       where
+        newNs ss = filter (\x -> csSsid x /= ss)
         blist s n = case find (\x -> csSsid x == s) n of
                        Just l -> csBssids l
                        Nothing -> []
