@@ -143,6 +143,7 @@ mainLoop world = do
         (configString "vpn_server_private_ip" world)
 
     tryLockFork "interfaceListLock" (interfaceListLock world') (updateInterfaceList world')
+    tryLockFork "checkWLANLock" (checkWLANLock world') (checkWLANScanRequest world')
     M.unless vpnok $ do
         tryLockFork "processListLock" (processListLock world') (updateProcessList world')
         tryLockFork "checkWWANLock" (checkWWANLock world') (checkWWAN world')

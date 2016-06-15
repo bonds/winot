@@ -58,7 +58,6 @@ function _choose_wlan_icon(strength) {
     // avoid flipping back and forth when on a strength boundary
     // e.g. 59, 60, 58, 61 will stay with the 'mid' icon the whole time
     let strengthDiff = Math.abs(strength - lastStrengthBoundary);
-    //log("strength: " + strength);
     if (strengthDiff > 5) {
         if (strength < 30) {
             iconSuffix = 'low';
@@ -92,6 +91,10 @@ const NetworkIndicator = new Lang.Class({
 
     _init: function(){
         this.parent(0.0, _("Network Indicator"));
+        // yah, so when the timer callback gets fired, 'this' doesn't work right
+        // we need to use the global _indicator variable instead, but when we call
+        // directly, not using the timer callback, the global _indicator variable
+        // isn't defined, so we define it here so both ways work
         _indicator = this;
 
         let gicon = Gio.icon_new_for_string(Me.path + "/icons/32/spam.png");
@@ -104,6 +107,7 @@ const NetworkIndicator = new Lang.Class({
         this._updateStatus();
         this._createWorkspacesSection();
         this._updateIcon();
+        this.actor.connect('button-press-event', this._requestScan);
 
     },
 
@@ -119,19 +123,20 @@ const NetworkIndicator = new Lang.Class({
         this.parent();
     },
 
-    _updateIndicator: function() {
-        log('here2');
+    _requestScan: function() {
+        GLib.spawn_command_line_sync('touch /tmp/winot-scan');
     },
 
     _createWorkspacesSection : function() {
+
+        // populate the menu with a list of networks
         _indicator._workspaceSection.removeAll();
-        log('here1' + _indicator.status);
         if (_indicator.status != null) {
-            log('here4' + _indicator.status);
             let networks = [];
             _indicator.workspacesItems = [];
             _indicator._currentWorkspace = global.screen.get_active_workspace().index();
 
+            // touch /var/winot/scan to request that winot scan for networks
             let i,j,k;
             for(i=0; i < _indicator.status.csNetworks.length; i++) {
                 let ssid = _indicator.status.csNetworks[i].csSsid 
@@ -151,10 +156,15 @@ const NetworkIndicator = new Lang.Class({
             networks = networks.sort(function(a,b) {
               return parseFloat(b.strength) - parseFloat(a.strength);
             });
-            for(i=0; i < networks.length; i++) {
+            for(i=0; i < networks.length && i <= 10; i++) {
                 let network = networks[i];
                 _indicator.workspacesItems[i] = new PopupMenu.PopupMenuItem(network.strength + ' ' + network.ssid);
                 _indicator._workspaceSection.addMenuItem(_indicator.workspacesItems[i]);
+                if (network.ssid == _indicator.status.csWlanSSID) {
+                    this.workspacesItems[i].setOrnament(PopupMenu.Ornament.DOT);
+                } else {
+                    this.workspacesItems[i].setOrnament(PopupMenu.Ornament.NONE);
+                }
                 _indicator.workspacesItems[i].workspaceId = i;
                 let self = _indicator;
                 _indicator.workspacesItems[i].connect('activate', Lang.bind(_indicator, function(actor, event) {
@@ -202,7 +212,6 @@ const NetworkIndicator = new Lang.Class({
         catch(err) {}
 
         if (ok) {
-            log('status updated');
             _indicator._updateIcon();
             _indicator._createWorkspacesSection();
         } else {

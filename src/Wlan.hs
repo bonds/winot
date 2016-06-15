@@ -14,6 +14,7 @@ import qualified Data.Maybe as B
 import qualified Data.Text as T
 import qualified Data.Text.ICU as U
 import qualified System.Clock as K
+import qualified System.Directory as SD
 import qualified System.Log.Logger as L
 import qualified Text.Toml.Types as O
 
@@ -25,7 +26,8 @@ checkWLAN world = do
 
     ifList <- atomRead $ interfaceList world
 
-    if wlanEnabled world then
+    if wlanEnabled world then do
+        checkWLANScanRequest world
         if wlanConnOK (B.fromJust wif) ifList (familiarSSIDs world):: Bool then
             if wlanIPOK (B.fromJust wif) ifList then do
                 wsok <- wlanSignalOK world
@@ -147,7 +149,7 @@ wlanIdle world = do
 
 -- it appears that scanning leads OpenBSD to switch to the higher powered
 -- BSSID if one is available with the same SSID, but the scanning process
--- interrupts and then renegotiates the current connection, regardless
+-- (sometimes) interrupts and then renegotiates the current connection, regardless
 -- whether a new BSSID with a stronger signal was found or whether we kept
 -- the same BSSID, so only scan when the signal is consistently weak and the
 -- connection is relatively idle
@@ -320,3 +322,16 @@ familiarSSIDs world =
         _ -> Nothing)
         (wlanNetworks world)
 
+scanRequested :: World -> IO Bool
+scanRequested world = do
+    ssls <- secondsSinceLastScan world
+    dfe <- SD.doesFileExist "/tmp/winot-scan"
+    let bscans = read $ T.unpack $ B.fromMaybe "60" (configString "MinimumSecondsBetweenScans" world)
+    M.return $ ssls > bscans && dfe
+
+checkWLANScanRequest :: World -> IO ()
+checkWLANScanRequest world = do
+    sr <- scanRequested world
+    M.when sr $ wlanScan world
+    _ <- try (SD.removeFile "/tmp/winot-scan") :: IO (Either IOException ())
+    M.return ()
