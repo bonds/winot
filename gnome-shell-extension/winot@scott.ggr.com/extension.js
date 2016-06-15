@@ -10,6 +10,7 @@ const Mainloop = imports.mainloop;
 const PanelMenu = imports.ui.panelMenu;
 const PopupMenu = imports.ui.popupMenu;
 const Panel = imports.ui.panel;
+const Tweener = imports.ui.tweener;
 
 const Gettext = imports.gettext.domain('gnome-shell-extensions');
 const _ = Gettext.gettext;
@@ -21,7 +22,7 @@ const Me = ExtensionUtils.getCurrentExtension();
 
 
 
-let text, _indicator, event, status;
+let _indicator, event, status;
 let lastStrengthBoundary = 100;
 let lastUsing = 'None';
 let lastStatus = 0;
@@ -29,14 +30,11 @@ let secondsBetweenSignalChecks = 2;
 
 function _hideHello() {
     Main.uiGroup.remove_actor(text);
-    text = null;
 }
 
-function _showHello() {
-    if (!text) {
-        text = new St.Label({ style_class: 'helloworld-label', text: 'hello, world' });
-        Main.uiGroup.add_actor(text);
-    }
+function _showHello(message) {
+    let text = new St.Label({ style_class: 'helloworld-label', text: message });
+    Main.uiGroup.add_actor(text);
 
     text.opacity = 255;
 
@@ -165,10 +163,10 @@ const NetworkIndicator = new Lang.Class({
                 } else {
                     this.workspacesItems[i].setOrnament(PopupMenu.Ornament.NONE);
                 }
-                _indicator.workspacesItems[i].workspaceId = i;
+                _indicator.workspacesItems[i].ssid = network.ssid;
                 let self = _indicator;
                 _indicator.workspacesItems[i].connect('activate', Lang.bind(_indicator, function(actor, event) {
-                    _indicator._activate(actor.workspaceId);
+                    _indicator._requestNetwork(actor.ssid);
                 }));
             }
             let now = Math.floor(GLib.get_real_time()/1000000);
@@ -181,11 +179,8 @@ const NetworkIndicator = new Lang.Class({
         }
     },
 
-    _activate : function (index) {
-        if(index >= 0 && index <  global.screen.n_workspaces) {
-            let metaWorkspace = global.screen.get_workspace_by_index(index);
-            metaWorkspace.activate(global.get_current_time());
-        }
+    _requestNetwork : function (ssid) {
+        GLib.file_set_contents('/tmp/winot-ssid', ssid);
     },
 
     _updateStatus : function (retry) {
@@ -199,7 +194,7 @@ const NetworkIndicator = new Lang.Class({
             retry == 4
         }
         try {
-            let [res1, timestamp,,] = GLib.spawn_command_line_sync('stat -f "%a" /var/winot/status');
+            let [res1, timestamp,,] = GLib.spawn_command_line_sync('stat -f "%m" /var/winot/status');
             let [res2, statusRaw] = GLib.file_get_contents('/var/winot/status');
             if (res1 && res2) {
                 // timestamp isn't a string until I concat it to a string
