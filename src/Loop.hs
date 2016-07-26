@@ -1,4 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Loop where
 
@@ -134,15 +136,22 @@ mainLoop world = do
     L.debugM logPrefix $ T.unpack $ "thisLoop: " `T.append` T.pack (show (lastMay (loopTimes world')))
 
     _ <- C.forkIO $ recordWLANSignalStrength world'
-    _ <- C.forkIO $ recordWLANBandwidth world'
+    M.when (B.isJust $ wlanIf world') $ do
+        _ <- C.forkIO $ recordBandwidth world' (B.fromJust $ wlanIf world') (wlanBandwidthLog world')
+        M.return ()
+    M.when (B.isJust $ vpnIf world') $ do
+        _ <- C.forkIO $ recordBandwidth world' (B.fromJust $ vpnIf world') (vpnBandwidthLog world')
+        M.return ()
 
+    -- skip most of the work if we're in our steady state of being connected to VPN
     dr <- runRead "route -n get -inet default"
     vpnok <- maybe
         (M.return False)
-        (\ip -> if ip `T.isInfixOf` dr then ping 3 ip else M.return False)
+        (\ip -> if ip `T.isInfixOf` dr then vpnConnOK world' else M.return False)
         (configString "vpn_server_private_ip" world)
 
     tryLockFork "interfaceListLock" (interfaceListLock world') (updateInterfaceList world')
+    tryLockFork "interfaceStatsLock" (interfaceStatsLock world') (updateInterfaceStats world')
     tryLockFork "checkWLANLock" (checkWLANLock world') (checkWLANScanRequest world')
     M.unless vpnok $ do
         tryLockFork "processListLock" (processListLock world') (updateProcessList world')

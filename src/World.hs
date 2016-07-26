@@ -22,6 +22,8 @@ data World = World { config :: O.Table
                    , checkRouteLock :: S.TMVar ()
                    , interfaceList :: S.TVar [IFInfo]
                    , interfaceListLock :: S.TMVar ()
+                   , interfaceStats :: S.TVar T.Text
+                   , interfaceStatsLock:: S.TMVar ()
                    , loopTimes :: [G.Int64]
                    , processList :: S.TVar T.Text
                    , processListLock :: S.TMVar ()
@@ -29,6 +31,7 @@ data World = World { config :: O.Table
                    , routeListLock :: S.TMVar ()
                    , wlanSignalStrengthLog :: S.TVar [Int]
                    , wlanBandwidthLog :: S.TVar [Int]
+                   , vpnBandwidthLog :: S.TVar [Int]
                    , wlanList :: S.TVar [APInfo]
                    , lastScan :: S.TVar G.Int64
                    , lastVPNConnect :: S.TVar G.Int64
@@ -76,6 +79,7 @@ initialWorld = do
     lwwc <- S.atomically $ S.newTVar 0
     lwlc <- S.atomically $ S.newTVar 0
     bwl <- S.atomically $ S.newTVar []
+    vbwl <- S.atomically $ S.newTVar []
     ssl <- S.atomically $ S.newTVar []
     wll <- S.atomically $ S.newTVar []
     l1 <- S.atomically S.newEmptyTMVar
@@ -84,9 +88,11 @@ initialWorld = do
     l5 <- S.atomically S.newEmptyTMVar
     l6 <- S.atomically S.newEmptyTMVar
     l7 <- S.atomically S.newEmptyTMVar
+    l8 <- S.atomically S.newEmptyTMVar
     l10 <- S.atomically S.newEmptyTMVar
     rv <- S.atomically $ S.newTVar None
     {-lset <- L.newFileLoggerSet L.defaultBufSize "/var/log/winot2"-}
+    is <- S.atomically $ S.newTVar T.empty
 
     con <- readFile "/etc/winot"
     let conf = O.parseTomlDoc "" $ T.pack con
@@ -101,6 +107,7 @@ initialWorld = do
                                      , checkRouteLock    = l7
                                      , processListLock   = l4
                                      , interfaceListLock = l5
+                                     , interfaceStatsLock = l8
                                      , routeListLock     = l6
                                      , vpnIf = Nothing
                                      , vpnOK = vk
@@ -113,12 +120,14 @@ initialWorld = do
                                      , processList = pt
                                      , wlanSignalStrengthLog = ssl
                                      , wlanBandwidthLog = bwl
+                                     , vpnBandwidthLog = vbwl
                                      , wlanList = wll
                                      , lastScan = ls
                                      , lastVPNConnect = lvc
                                      , lastWWANConnect = lwwc
                                      , lastWLANConnect = lwlc
                                      , routeVia = rv
+                                     , interfaceStats = is
                                      {-, loggerSet = lset-}
                                      }
 

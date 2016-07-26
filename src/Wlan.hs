@@ -1,4 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Wlan where
 
@@ -139,14 +141,6 @@ wlanSignalWeak world = do
     intervals = read $ T.unpack $ B.fromMaybe "30" (configString "WeakSignalIntervalsBeforeWeak" world)
     wsmeans = read $ T.unpack $ B.fromMaybe "20" (configString "WeakSignalMeansLessThan" world)
 
-wlanIdle :: World -> IO Bool
-wlanIdle world = do
-    l <- atomRead $ wlanBandwidthLog world
-    M.return $ length l >= intervals && maximum (lastN intervals l) < imeans
-  where
-    intervals = read $ T.unpack $ B.fromMaybe "30" (configString "IdleIntervalsBeforeIdle" world)
-    imeans = read $ T.unpack $ B.fromMaybe "1000" (configString "IdleMeansLessThanXBytes" world)
-
 -- it appears that scanning leads OpenBSD to switch to the higher powered
 -- BSSID if one is available with the same SSID, but the scanning process
 -- (sometimes) interrupts and then renegotiates the current connection, regardless
@@ -230,35 +224,13 @@ wlanEnabled :: World -> Bool
 wlanEnabled world =
     B.isJust (wlanIf world) && read (T.unpack (B.fromMaybe "True" (configString "wlan_enabled" world)))
 
-recordWLANBandwidth :: World -> IO ()
-recordWLANBandwidth world = do
-    let logPrefix = "winot.recordWLANBandwidth"
-    M.when (wlanEnabled world) $ do
-        ni <- wlanBandwidth (wlanIf world)
-        M.when (B.isJust ni) $ do
-            l <- atomRead $ wlanBandwidthLog world
-            let !values = lastN (itemsToKeep-1) l ++ [read $ T.unpack $ B.fromJust ni]
-            atomWrite
-                (wlanBandwidthLog world)
-                values
-    log2 <- atomRead $ wlanBandwidthLog world
-    L.debugM logPrefix $ T.unpack $ T.concat ["wlanbw: ", T.pack (show (lastN 5 log2))]
+wlanIdle :: World -> IO Bool
+wlanIdle world = do
+    l <- atomRead $ wlanBandwidthLog world
+    M.return $ length l >= intervals && maximum (lastN intervals l) < imeans
   where
-    itemsToKeep = 100
-
-wlanBandwidth :: Maybe T.Text -> IO (Maybe T.Text)
-wlanBandwidth wif =
-    if B.isJust wif then do
-        stats <- runRead $ "systat -w 100 -B ifstat " `T.append` sampleSizeInSeconds
-        M.return $ case U.find
-                (U.regex [U.Multiline] ("^" `T.append` B.fromJust wif `T.append` ".*"))
-                stats of
-            Just m -> T.words (B.fromJust $ U.group 0 m) `atMay` 6
-            Nothing -> Nothing
-    else
-        M.return Nothing
-  where
-    sampleSizeInSeconds = "1"
+    intervals = read $ T.unpack $ B.fromMaybe "30" (configString "IdleIntervalsBeforeIdle" world)
+    imeans = read $ T.unpack $ B.fromMaybe "1000" (configString "IdleMeansLessThanXBytes" world)
 
 recordWLANSignalStrength :: World -> IO ()
 recordWLANSignalStrength world = do

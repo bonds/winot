@@ -1,3 +1,7 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 module Util where
 
 import Protolude
@@ -174,4 +178,39 @@ parseInterfaceList il = list
 
 initOrEmpty :: [a] -> [a]
 initOrEmpty = reverse . drop 1 . reverse -- gives a empty list if less than 2 in list
+
+idle :: World -> [Int] -> IO Bool
+idle world l = M.return $ length l >= intervals && maximum (lastN intervals l) < imeans
+  where
+    intervals = read $ T.unpack $ B.fromMaybe "30" (configString "IdleIntervalsBeforeIdle" world)
+    imeans = read $ T.unpack $ B.fromMaybe "1000" (configString "IdleMeansLessThanXBytes" world)
+
+recordBandwidth :: World -> T.Text -> S.TVar [Int] -> IO ()
+recordBandwidth world interface bl = do
+    ni <- bandwidth world interface
+    M.when (B.isJust ni) $ do
+        l <- atomRead bl
+        let !values = lastN (itemsToKeep-1) l ++ [read $ T.unpack $ B.fromJust ni]
+        atomWrite bl values
+    l' <- atomRead bl
+    L.debugM (T.unpack logPrefix) $ T.unpack $ T.concat [interface, "bw: ", T.pack (show (lastN 5 l'))]
+  where
+    itemsToKeep = 100
+    logPrefix = T.concat ["winot.recordBandwidth.", interface]
+
+bandwidth :: World -> T.Text -> IO (Maybe T.Text)
+bandwidth world interface = do
+    stats <- atomRead (interfaceStats world)
+    M.return $ case U.find
+            (U.regex [U.Multiline] ("^" `T.append` interface `T.append` ".*"))
+            stats of
+        Just m -> T.words (B.fromJust $ U.group 0 m) `atMay` 6
+        Nothing -> Nothing
+
+updateInterfaceStats :: World -> IO ()
+updateInterfaceStats world = do
+    stats <- runRead $ "systat -w 100 -B ifstat " `T.append` sampleSizeInSeconds
+    atomWrite (interfaceStats world) stats
+  where
+    sampleSizeInSeconds = "1"
 

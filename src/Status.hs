@@ -1,3 +1,5 @@
+{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
 
 module Status where
@@ -51,10 +53,10 @@ apsToNetworks aps = snd $ helper aps []
     {-@ helper :: aps:[APInfo] -> [WLANNetwork] -> ([APInfo], [WLANNetwork]) / [len aps] @-}
     helper :: [APInfo] -> [WLANNetwork] -> ([APInfo], [WLANNetwork])
     helper (a:as) ns = helper as ((newNs (ssid a) ns) ++ [WLANNetwork { csSsid = ssid a
-                                                       , csBssids = [ BSSID { csBssid = bssid a
-                                                                            , csStrength = strength a
-                                                                            }
-                                                                    ] ++ blist (ssid a) ns
+                                                       , csBssids = BSSID { csBssid = bssid a
+                                                                          , csStrength = strength a
+                                                                          }
+                                                                    : blist (ssid a) ns
                                                        }])
       where
         newNs ss = filter (\x -> csSsid x /= ss)

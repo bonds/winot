@@ -1,3 +1,6 @@
+{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 module Vpn where
 
 import Protolude
@@ -121,7 +124,10 @@ vpnConnOK :: World -> IO Bool
 vpnConnOK world = do
     let logPrefix = "winot.vpnConnOK"
     L.debugM logPrefix "start"
-    maybe (M.return False) (ping 3) ip
+    bl <- atomRead $ vpnBandwidthLog world
+    i <- idle world bl
+    if i then maybe (M.return False) (ping 3) ip
+    else M.return True
     {-maybe (M.return False) (ping 3) $ Just "8.8.8.8"-}
   where
     ip = configString "vpn_server_private_ip" world

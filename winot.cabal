@@ -76,7 +76,6 @@ library
 
 executable winot-exe
   default-extensions:
-    NoImplicitPrelude
 
   ghc-options:
     -threaded

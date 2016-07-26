@@ -1,3 +1,6 @@
+{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 module Route where
 
 import Protolude
@@ -46,6 +49,11 @@ checkRoute world = do
     L.debugM logPrefix "finished"
   where
     logPrefix = "winot.checkRoutes"
+    resetRoutes w r = do
+        clearDefaultRoute r
+        clearVPNRoute w
+        atomWrite (routeVia w) None
+        M.return ()
     tryWWAN w = do
         wwanok <- atomRead $ wwanOK w
         rl <- atomRead (routeList w)
@@ -64,20 +72,14 @@ checkRoute world = do
                     L.errorM logPrefix "wwan is ok but no wwan gateway?!"
                     L.debugM logPrefix $ T.unpack $ T.concat [".... wif is ", B.fromJust wif]
                     L.debugM logPrefix $ T.unpack $ T.concat [".... rl is ", rl]
-                    clearDefaultRoute rl
-                    clearVPNRoute world
-                    atomWrite (routeVia world) None
+                    resetRoutes world rl
             else do
                 L.debugM logPrefix "route choice: wifbad"
                 L.errorM logPrefix "wwan is ok but no wwan interface?!"
-                clearDefaultRoute rl
-                clearVPNRoute world
-                atomWrite (routeVia world) None
+                resetRoutes world rl
         else do
             L.debugM logPrefix "route choice: wwanbad"
-            clearDefaultRoute rl
-            clearVPNRoute world
-            atomWrite (routeVia world) None
+            resetRoutes world rl
 
 routeVPNViaWLAN :: T.Text -> Maybe T.Text -> World -> IO ()
 routeVPNViaWLAN rl wlg world = do

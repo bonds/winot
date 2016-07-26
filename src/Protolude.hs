@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
 module Protolude (
   module X,
@@ -15,11 +16,11 @@ module Protolude (
 
 import qualified Prelude as P
 
-import qualified List as X
+import qualified Data.List as X
 import qualified Show as X
 import qualified Bool as X
 import qualified Debug as X
-import qualified Monad as X
+import qualified Control.Monad as X
 import qualified Applicative as X
 
 -- Maybe'ized version of partial functions
