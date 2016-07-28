@@ -128,8 +128,9 @@ wlanSignalOK :: World -> IO Bool
 wlanSignalOK world = do
     ssls <- secondsSinceLastScan world
     wsw  <- wlanSignalWeak world
-    wi   <- wlanIdle world
-    M.return $ not $ ssls > bscans && wsw && wi
+    bl <- atomRead $ wlanBandwidthLog world
+    wi   <- idle world bl
+    M.return $ not $ ssls > bscans && wsw && B.maybe False id wi
   where
       bscans = read $ T.unpack $ B.fromMaybe "60" (configString "MinimumSecondsBetweenScans" world)
 
@@ -223,14 +224,6 @@ isWLAN i = B.isJust (U.find (U.regex [U.Multiline] "groups:.*wlan") (detail i))
 wlanEnabled :: World -> Bool
 wlanEnabled world =
     B.isJust (wlanIf world) && read (T.unpack (B.fromMaybe "True" (configString "wlan_enabled" world)))
-
-wlanIdle :: World -> IO Bool
-wlanIdle world = do
-    l <- atomRead $ wlanBandwidthLog world
-    M.return $ length l >= intervals && maximum (lastN intervals l) < imeans
-  where
-    intervals = read $ T.unpack $ B.fromMaybe "30" (configString "IdleIntervalsBeforeIdle" world)
-    imeans = read $ T.unpack $ B.fromMaybe "1000" (configString "IdleMeansLessThanXBytes" world)
 
 recordWLANSignalStrength :: World -> IO ()
 recordWLANSignalStrength world = do

@@ -126,7 +126,7 @@ vpnConnOK world = do
     L.debugM logPrefix "start"
     bl <- atomRead $ vpnBandwidthLog world
     i <- idle world bl
-    if i then maybe (M.return False) (ping 3) ip
+    if B.maybe True id i then maybe (M.return False) (ping 3) ip
     else M.return True
     {-maybe (M.return False) (ping 3) $ Just "8.8.8.8"-}
   where

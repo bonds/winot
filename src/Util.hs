@@ -5,7 +5,7 @@
 module Util where
 
 import Protolude
-import Prelude (($), last, maximum, String, (++), read, take)
+import Prelude (($), last, maximum, String, (++), take)
 import World
 import qualified Control.Concurrent as C
 import qualified Control.Concurrent.STM as S
@@ -65,7 +65,7 @@ firstIfAvailable :: T.Text -> [IFInfo] -> T.Text
 firstIfAvailable prefix ifs = T.concat [prefix, T.pack (show $ fan numbers)]
   where
       names = [ name i | i <- ifs, prefix `T.isPrefixOf` name i ]
-      numbers = [ read [T.last x] | x <- names ]
+      numbers = B.catMaybes [ readMaybe [T.last x] | x <- names ]
       fan :: [Int] -> Int
       fan x@(_:_)  = maximum x + 1
       fan _        = 0
@@ -179,19 +179,28 @@ parseInterfaceList il = list
 initOrEmpty :: [a] -> [a]
 initOrEmpty = reverse . drop 1 . reverse -- gives a empty list if less than 2 in list
 
-idle :: World -> [Int] -> IO Bool
-idle world l = M.return $ length l >= intervals && maximum (lastN intervals l) < imeans
+idle :: World -> [Maybe Int] -> IO (Maybe Bool)
+idle world l = if length l >= intervals then do
+                   let ln = B.catMaybes $ lastN intervals l
+                   if length ln == intervals then
+                       if maximum ln < imeans then
+                           M.return $ Just True
+                       else
+                           M.return $ Just False
+                   else
+                       M.return Nothing
+               else
+                   M.return Nothing
   where
-    intervals = read $ T.unpack $ B.fromMaybe "30" (configString "IdleIntervalsBeforeIdle" world)
-    imeans = read $ T.unpack $ B.fromMaybe "1000" (configString "IdleMeansLessThanXBytes" world)
+    intervals = B.maybe 30 (B.maybe 30 id . readMaybe . T.unpack) $ configString "IdleIntervalsBeforeIdle" world
+    imeans = B.maybe 1000 (B.maybe 1000 id . readMaybe . T.unpack) $ configString "IdleMeansLessThanXBytes" world
 
-recordBandwidth :: World -> T.Text -> S.TVar [Int] -> IO ()
+recordBandwidth :: World -> T.Text -> S.TVar [Maybe Int] -> IO ()
 recordBandwidth world interface bl = do
-    ni <- bandwidth world interface
-    M.when (B.isJust ni) $ do
-        l <- atomRead bl
-        let !values = lastN (itemsToKeep-1) l ++ [read $ T.unpack $ B.fromJust ni]
-        atomWrite bl values
+    bw <- bandwidth world interface
+    l <- atomRead bl
+    let !values = lastN (itemsToKeep-1) l ++ B.maybe [B.Nothing] (\x -> [readMaybe $ T.unpack x]) bw
+    atomWrite bl values
     l' <- atomRead bl
     L.debugM (T.unpack logPrefix) $ T.unpack $ T.concat [interface, "bw: ", T.pack (show (lastN 5 l'))]
   where

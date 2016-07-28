@@ -128,8 +128,8 @@ loop = do
 mainLoop :: World -> IO World
 mainLoop world = do
     let logPrefix = "winot.mainLoop"
-    L.debugM logPrefix "start loop"
     let secondsBetweenLoops = 1
+    L.debugM logPrefix "start loop"
 
     world' <- recordLoopTimes world
     L.debugM logPrefix $ T.unpack $ "lastLoop: " `T.append` T.pack (show (headMay (loopTimes world')))

@@ -34,8 +34,6 @@ library
     Unsafe
 
   default-extensions:
-    NoImplicitPrelude
-    OverloadedStrings
 
   ghc-options:
     -Wall

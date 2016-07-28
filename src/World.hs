@@ -30,8 +30,8 @@ data World = World { config :: O.Table
                    , routeList :: S.TVar T.Text
                    , routeListLock :: S.TMVar ()
                    , wlanSignalStrengthLog :: S.TVar [Int]
-                   , wlanBandwidthLog :: S.TVar [Int]
-                   , vpnBandwidthLog :: S.TVar [Int]
+                   , wlanBandwidthLog :: S.TVar [Maybe Int]
+                   , vpnBandwidthLog :: S.TVar [Maybe Int]
                    , wlanList :: S.TVar [APInfo]
                    , lastScan :: S.TVar G.Int64
                    , lastVPNConnect :: S.TVar G.Int64
