@@ -32,6 +32,7 @@ import Safe as X (
   , lastMay
   , lastDef
   , maximumMay
+  , readDef
   )
 
 -- Applicatives

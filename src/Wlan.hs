@@ -6,7 +6,7 @@ module Wlan where
 
 import Data.HashMap.Lazy as H ((!), HashMap)
 import Protolude
-import Prelude (($), read, maximum, (++), last, readFile)
+import Prelude (($), (++), readFile)
 import Util
 import World
 import qualified Control.Concurrent.Thread.Delay as D
@@ -94,9 +94,7 @@ connectWLANConn world = do
             let fs = familiarSSIDs world
             let familiarAndInRange = filter (\x -> ssid x `elem` fs) aps
             M.unless (null familiarAndInRange) $ do
-                let s = case DL.sortOn strength familiarAndInRange of
-                            ssids@(_:_) -> ssid $ last ssids
-                            _            -> ""
+                let s = B.maybe "" ssid $ lastMay $ DL.sortOn strength familiarAndInRange
                 let a = B.fromJust $ lookupSSID s world
                 let nwid = case a ! T.pack "ssid" of
                                O.NTValue n -> case n of
@@ -132,15 +130,17 @@ wlanSignalOK world = do
     wi   <- idle world bl
     M.return $ not $ ssls > bscans && wsw && B.maybe False id wi
   where
-      bscans = read $ T.unpack $ B.fromMaybe "60" (configString "MinimumSecondsBetweenScans" world)
+    bscans = readDef 60 $ T.unpack $ B.fromMaybe "60" (configString "MinimumSecondsBetweenScans" world)
 
 wlanSignalWeak :: World -> IO Bool
 wlanSignalWeak world = do
     l <- atomRead $ wlanSignalStrengthLog world
-    M.return $ length l >= intervals && maximum (lastN intervals l) < wsmeans
+    M.return $ length l >= intervals && case maximumMay (lastN intervals l) of
+        Just m -> m < wsmeans
+        Nothing -> False
   where
-    intervals = read $ T.unpack $ B.fromMaybe "30" (configString "WeakSignalIntervalsBeforeWeak" world)
-    wsmeans = read $ T.unpack $ B.fromMaybe "20" (configString "WeakSignalMeansLessThan" world)
+    intervals = B.maybe 30 (B.maybe 30 id . readMaybe . T.unpack) $ configString "WeakSignalIntervalsBeforeWeak" world
+    wsmeans = B.maybe 20 (B.maybe 20 id . readMaybe . T.unpack) $ configString "WeakSignalMeansLessThan" world
 
 -- it appears that scanning leads OpenBSD to switch to the higher powered
 -- BSSID if one is available with the same SSID, but the scanning process
@@ -223,7 +223,7 @@ isWLAN i = B.isJust (U.find (U.regex [U.Multiline] "groups:.*wlan") (detail i))
 
 wlanEnabled :: World -> Bool
 wlanEnabled world =
-    B.isJust (wlanIf world) && read (T.unpack (B.fromMaybe "True" (configString "wlan_enabled" world)))
+    B.isJust (wlanIf world) && readDef True (T.unpack (B.fromMaybe "True" (configString "wlan_enabled" world)))
 
 recordWLANSignalStrength :: World -> IO ()
 recordWLANSignalStrength world = do
@@ -243,7 +243,7 @@ recordWLANSignalStrength world = do
     wif = wlanIf world
     d infos = detailOrEmpty (DL.find (\i -> name i == B.fromJust wif) infos)
     newItem infos = case U.find (U.regex [U.Multiline] "bssid.* (.*)%") (d infos) of
-        Just m -> Just (read $ T.unpack $ B.fromJust $ U.group 1 m :: Int)
+        Just m -> readMaybe $ T.unpack $ B.fromJust $ U.group 1 m :: Maybe Int
         Nothing -> Nothing
 
 wlanNetworks :: World -> [O.Table]
@@ -291,7 +291,7 @@ scanRequested :: World -> IO Bool
 scanRequested world = do
     ssls <- secondsSinceLastScan world
     dfe <- SD.doesFileExist "/tmp/winot-scan"
-    let bscans = read $ T.unpack $ B.fromMaybe "60" (configString "MinimumSecondsBetweenScans" world)
+    let bscans = readDef 60 $ T.unpack $ B.fromMaybe "60" (configString "MinimumSecondsBetweenScans" world)
     M.return $ ssls > bscans && dfe
 
 checkWLANScanRequest :: World -> IO ()

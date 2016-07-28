@@ -3,8 +3,9 @@
 module World where
 
 import Protolude
-import Prelude (($), readFile, return)
+import Prelude (($), readFile)
 import qualified Control.Concurrent.STM as S
+import qualified Control.Monad as M
 import qualified Data.HashMap.Lazy as H
 import qualified Data.Text as T
 import qualified GHC.Int as G
@@ -97,7 +98,7 @@ initialWorld = do
     con <- readFile "/etc/winot"
     let conf = O.parseTomlDoc "" $ T.pack con
 
-    return $ case conf of
+    M.return $ case conf of
                Left _ -> Nothing
                Right c -> Just World { loopTimes = []
                                      , config            = c

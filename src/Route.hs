@@ -4,7 +4,7 @@
 module Route where
 
 import Protolude
-import Prelude (($), read)
+import Prelude (($))
 import Util
 import Vpn
 import Wlan
@@ -35,7 +35,7 @@ checkRoute world = do
         else do
             L.debugM logPrefix "route choice: vpnbad"
             let wovpn = configString "wlan_without_vpn_enabled" world
-            if B.isJust wlg && B.isJust wovpn && read (T.unpack $ B.fromJust wovpn) then do
+            if B.isJust wlg && B.isJust wovpn && B.isJust (readMaybe (T.unpack $ B.fromJust wovpn) :: Maybe Bool) then do
                 L.debugM logPrefix "route choice: wovpn"
                 rl <- atomRead (routeList world)
                 setDefaultRoute rl (B.fromJust wlg)
