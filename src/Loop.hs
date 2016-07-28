@@ -5,7 +5,6 @@
 module Loop where
 
 import Protolude
-import Prelude (($), take, (++))
 import Control.Monad ((>>=), (>>))
 import Route
 import Status
@@ -214,6 +213,6 @@ recordLoopTimes :: World -> IO World
 recordLoopTimes world = do
     let numOfTimestampsToKeep = 2
     time <- K.getTime K.Realtime
-    let !newLoopTimes = reverse (take (numOfTimestampsToKeep-1) $ reverse (loopTimes world)) ++ [K.sec time]
+    let !newLoopTimes = reverse (take (numOfTimestampsToKeep-1) $ reverse (loopTimes world)) <> [K.sec time]
     M.return world { loopTimes = newLoopTimes }
 

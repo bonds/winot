@@ -89,6 +89,7 @@ import Data.List as X (
   , filter
   , reverse
   , replicate
+  , take
   )
 import Data.Map as X (Map)
 import Data.Set as X (Set)
@@ -156,6 +157,7 @@ import Data.Function as X (
   , flip
   , fix
   , on
+  , ($)
   )
 
 -- Base GHC types

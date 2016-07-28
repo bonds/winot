@@ -6,7 +6,6 @@ module Wlan where
 
 import Data.HashMap.Lazy as H ((!), HashMap)
 import Protolude
-import Prelude (($), (++), readFile)
 import Util
 import World
 import qualified Control.Concurrent.Thread.Delay as D
@@ -17,6 +16,7 @@ import qualified Data.Text as T
 import qualified Data.Text.ICU as U
 import qualified System.Clock as K
 import qualified System.Directory as SD
+import qualified System.IO as IO
 import qualified System.Log.Logger as L
 import qualified Text.Toml.Types as O
 
@@ -128,7 +128,7 @@ wlanSignalOK world = do
     wsw  <- wlanSignalWeak world
     bl <- atomRead $ wlanBandwidthLog world
     wi   <- idle world bl
-    M.return $ not $ ssls > bscans && wsw && B.maybe False id wi
+    M.return $ not $ ssls > bscans && wsw && B.fromMaybe False wi
   where
     bscans = readDef 60 $ T.unpack $ B.fromMaybe "60" (configString "MinimumSecondsBetweenScans" world)
 
@@ -139,8 +139,8 @@ wlanSignalWeak world = do
         Just m -> m < wsmeans
         Nothing -> False
   where
-    intervals = B.maybe 30 (B.maybe 30 id . readMaybe . T.unpack) $ configString "WeakSignalIntervalsBeforeWeak" world
-    wsmeans = B.maybe 20 (B.maybe 20 id . readMaybe . T.unpack) $ configString "WeakSignalMeansLessThan" world
+    intervals = B.maybe 30 (B.fromMaybe 30 . readMaybe . T.unpack) $ configString "WeakSignalIntervalsBeforeWeak" world
+    wsmeans = B.maybe 20 (B.fromMaybe 20 . readMaybe . T.unpack) $ configString "WeakSignalMeansLessThan" world
 
 -- it appears that scanning leads OpenBSD to switch to the higher powered
 -- BSSID if one is available with the same SSID, but the scanning process
@@ -232,7 +232,7 @@ recordWLANSignalStrength world = do
         l <- atomRead $ wlanSignalStrengthLog world
         infos <- atomRead $ interfaceList world
         M.when (B.isJust (newItem infos)) $ do
-            let !values = lastN (itemsToKeep-1) l ++ [B.fromJust (newItem infos)]
+            let !values = lastN (itemsToKeep-1) l <> [B.fromJust (newItem infos)]
             atomWrite
                 (wlanSignalStrengthLog world)
                 values
@@ -270,7 +270,7 @@ wlanGateway wif = do
     let logPrefix = "winot.wlanGateway"
     if B.isJust wif then do
         L.debugM logPrefix "start"
-        lease <- readFile $ T.unpack ("/var/db/dhclient.leases." `T.append` B.fromJust wif)
+        lease <- IO.readFile $ T.unpack ("/var/db/dhclient.leases." `T.append` B.fromJust wif)
         let matches = case U.find (U.regex [U.Multiline] "routers (.*);") (T.pack lease) of
                           Just m -> U.group 1 m
                           Nothing -> Nothing

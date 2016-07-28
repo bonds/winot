@@ -2,8 +2,6 @@
 
 module World where
 
-import Protolude
-import Prelude (($), readFile)
 import qualified Control.Concurrent.STM as S
 import qualified Control.Monad as M
 import qualified Data.HashMap.Lazy as H

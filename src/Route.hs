@@ -4,7 +4,6 @@
 module Route where
 
 import Protolude
-import Prelude (($))
 import Util
 import Vpn
 import Wlan

@@ -4,7 +4,6 @@
 module Vpn where
 
 import Protolude
-import Prelude (($), readFile)
 import Util
 import Wlan
 import World
@@ -15,6 +14,7 @@ import qualified Data.Maybe as B
 import qualified Data.Text as T
 import qualified Data.Text.ICU as U
 import qualified System.Clock as K
+import qualified System.IO as IO
 import qualified System.Log.Logger as L
 
 default (T.Text, Integer, Double)
@@ -101,7 +101,7 @@ vpnCommand world =
 sshAuthSock :: World -> IO (Maybe T.Text)
 sshAuthSock world =
     if B.isJust fname then do
-        contents <- readFile $ T.unpack (B.fromJust fname)
+        contents <- IO.readFile $ T.unpack (B.fromJust fname)
         M.return $ case U.find (U.regex [] "SSH_AUTH_SOCK (.*);") (T.pack contents) of
             Just m  -> U.group 1 m
             Nothing -> Nothing
@@ -126,7 +126,7 @@ vpnConnOK world = do
     L.debugM logPrefix "start"
     bl <- atomRead $ vpnBandwidthLog world
     i <- idle world bl
-    if B.maybe True id i then maybe (M.return False) (ping 3) ip
+    if B.fromMaybe True i then maybe (M.return False) (ping 3) ip
     else M.return True
     {-maybe (M.return False) (ping 3) $ Just "8.8.8.8"-}
   where

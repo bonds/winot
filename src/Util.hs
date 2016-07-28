@@ -4,8 +4,8 @@
 
 module Util where
 
+import GHC.Base (String)
 import Protolude
-import Prelude (($), String, (++), take)
 import World
 import qualified Control.Concurrent as C
 import qualified Control.Concurrent.STM as S
@@ -162,9 +162,9 @@ parseInterfaceList il = list
     infos :: [T.Text] -> [(T.Text, [T.Text])] -> ([T.Text], [(T.Text, [T.Text])])
     infos [] records = ([], records)
     infos (x:xs) records
-        | startsWithInterfaceName = infos xs $ records ++ [(interfaceName, [x])]
+        | startsWithInterfaceName = infos xs $ records <> [(interfaceName, [x])]
         | otherwise = case lastMay records of
-              Just currentRecord -> infos xs $ initOrEmpty records ++ [(fst currentRecord, snd currentRecord ++ [x])]
+              Just currentRecord -> infos xs $ initOrEmpty records <> [(fst currentRecord, snd currentRecord <> [x])]
               Nothing            -> infos xs records
         where
         startsWithInterfaceName = B.isJust (U.find (U.regex [] "^[a-zA-Z]*[0-9]: ") x)
@@ -188,14 +188,14 @@ idle world l = if length l >= intervals then do
                else
                    M.return Nothing
   where
-    intervals = B.maybe 30 (B.maybe 30 id . readMaybe . T.unpack) $ configString "IdleIntervalsBeforeIdle" world
-    imeans = B.maybe 1000 (B.maybe 1000 id . readMaybe . T.unpack) $ configString "IdleMeansLessThanXBytes" world
+    intervals = B.maybe 30 (B.fromMaybe 30 . readMaybe . T.unpack) $ configString "IdleIntervalsBeforeIdle" world
+    imeans = B.maybe 1000 (B.fromMaybe 1000 . readMaybe . T.unpack) $ configString "IdleMeansLessThanXBytes" world
 
 recordBandwidth :: World -> T.Text -> S.TVar [Maybe Int] -> IO ()
 recordBandwidth world interface bl = do
     bw <- bandwidth world interface
     l <- atomRead bl
-    let !values = lastN (itemsToKeep-1) l ++ B.maybe [B.Nothing] (\x -> [readMaybe $ T.unpack x]) bw
+    let !values = lastN (itemsToKeep-1) l <> B.maybe [B.Nothing] (\x -> [readMaybe $ T.unpack x]) bw
     atomWrite bl values
     l' <- atomRead bl
     L.debugM (T.unpack logPrefix) $ T.unpack $ T.concat [interface, "bw: ", T.pack (show (lastN 5 l'))]

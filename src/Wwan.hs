@@ -4,7 +4,6 @@
 module Wwan where
 
 import Protolude
-import Prelude (($))
 import Util
 import World
 import qualified Control.Concurrent.Thread.Delay as D
