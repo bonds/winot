@@ -30,6 +30,8 @@ import Safe as X (
   , tailMay
   , atMay
   , lastMay
+  , lastDef
+  , maximumMay
   )
 
 -- Applicatives

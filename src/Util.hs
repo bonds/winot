@@ -5,7 +5,7 @@
 module Util where
 
 import Protolude
-import Prelude (($), last, maximum, String, (++), take)
+import Prelude (($), String, (++), take)
 import World
 import qualified Control.Concurrent as C
 import qualified Control.Concurrent.STM as S
@@ -53,10 +53,6 @@ tryLockFork n lock actions = do
             M.return ()
         M.return ()
 
-lastOrBlank :: [T.Text] -> T.Text
-lastOrBlank x@(_:_) = last x
-lastOrBlank _ = ""
-
 wasSuccess :: E.ExitCode -> Bool
 wasSuccess E.ExitSuccess = True
 wasSuccess (E.ExitFailure _) = False
@@ -67,7 +63,7 @@ firstIfAvailable prefix ifs = T.concat [prefix, T.pack (show $ fan numbers)]
       names = [ name i | i <- ifs, prefix `T.isPrefixOf` name i ]
       numbers = B.catMaybes [ readMaybe [T.last x] | x <- names ]
       fan :: [Int] -> Int
-      fan x@(_:_)  = maximum x + 1
+      fan x@(_:_)  = maybe 0 (+1) $ maximumMay x
       fan _        = 0
 
 -- ping up to X times, if any are OK, stop, and return OK
@@ -149,13 +145,11 @@ runReadEC command = do
     {-return ()-}
 
 lastMatchFirstGroup :: [[String]] -> Maybe T.Text
-lastMatchFirstGroup x@(_:_) =
-    case last x of
-        (_:y) -> case y of
-            (z:_) -> Just (T.pack z)
-            _ -> Nothing
-        _ -> Nothing
-lastMatchFirstGroup _ = Nothing
+lastMatchFirstGroup xs = case lastMay xs of
+    Just gs -> case headMay gs of
+        Just g -> Just $ T.pack g
+        Nothing -> Nothing
+    Nothing -> Nothing
 
 parseInterfaceList :: T.Text -> [IFInfo]
 parseInterfaceList il = list
@@ -183,10 +177,12 @@ idle :: World -> [Maybe Int] -> IO (Maybe Bool)
 idle world l = if length l >= intervals then do
                    let ln = B.catMaybes $ lastN intervals l
                    if length ln == intervals then
-                       if maximum ln < imeans then
-                           M.return $ Just True
-                       else
-                           M.return $ Just False
+                       case maximumMay ln of
+                           Just m -> if m < imeans then
+                                   M.return $ Just True
+                               else
+                                   M.return $ Just False
+                           Nothing -> M.return Nothing
                    else
                        M.return Nothing
                else
