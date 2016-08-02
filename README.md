@@ -50,6 +50,7 @@ connections at all times.
 # Further Reading
 
 * [how to setup a layer 3 VPN over SSH][2]
+* Theo suggesting something like [this is a bad idea][10]
 
 ## Alternatives
 
@@ -68,3 +69,5 @@ connections at all times.
   [7]: http://man.openbsd.org/OpenBSD-current/man8/route.8
   [8]: http://marc.info/?l=openbsd-misc&m=146488514620893&w=2
   [9]: https://github.com/farhaven/wireless
+  [10]: http://marc.info/?l=openbsd-misc&m=147014820224401&w=2
+
