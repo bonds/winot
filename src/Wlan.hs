@@ -1,10 +1,11 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Wlan where
 
 import Data.HashMap.Lazy as H ((!), HashMap)
 import Protolude
-import Prelude (($), read, maximum, (++), last, readFile)
 import Util
 import World
 import qualified Control.Concurrent.Thread.Delay as D
@@ -14,6 +15,8 @@ import qualified Data.Maybe as B
 import qualified Data.Text as T
 import qualified Data.Text.ICU as U
 import qualified System.Clock as K
+import qualified System.Directory as SD
+import qualified System.IO as IO
 import qualified System.Log.Logger as L
 import qualified Text.Toml.Types as O
 
@@ -25,7 +28,8 @@ checkWLAN world = do
 
     ifList <- atomRead $ interfaceList world
 
-    if wlanEnabled world then
+    if wlanEnabled world then do
+        checkWLANScanRequest world
         if wlanConnOK (B.fromJust wif) ifList (familiarSSIDs world):: Bool then
             if wlanIPOK (B.fromJust wif) ifList then do
                 wsok <- wlanSignalOK world
@@ -90,9 +94,7 @@ connectWLANConn world = do
             let fs = familiarSSIDs world
             let familiarAndInRange = filter (\x -> ssid x `elem` fs) aps
             M.unless (null familiarAndInRange) $ do
-                let s = case DL.sortOn strength familiarAndInRange of
-                            ssids@(_:_) -> ssid $ last ssids
-                            _            -> ""
+                let s = B.maybe "" ssid $ lastMay $ DL.sortOn strength familiarAndInRange
                 let a = B.fromJust $ lookupSSID s world
                 let nwid = case a ! T.pack "ssid" of
                                O.NTValue n -> case n of
@@ -124,30 +126,25 @@ wlanSignalOK :: World -> IO Bool
 wlanSignalOK world = do
     ssls <- secondsSinceLastScan world
     wsw  <- wlanSignalWeak world
-    wi   <- wlanIdle world
-    M.return $ not $ ssls > bscans && wsw && wi
+    bl <- atomRead $ wlanBandwidthLog world
+    wi   <- idle world bl
+    M.return $ not $ ssls > bscans && wsw && B.fromMaybe False wi
   where
-      bscans = read $ T.unpack $ B.fromMaybe "60" (configString "MinimumSecondsBetweenScans" world)
+    bscans = readDef 60 $ T.unpack $ B.fromMaybe "60" (configString "MinimumSecondsBetweenScans" world)
 
 wlanSignalWeak :: World -> IO Bool
 wlanSignalWeak world = do
     l <- atomRead $ wlanSignalStrengthLog world
-    M.return $ length l >= intervals && maximum (lastN intervals l) < wsmeans
+    M.return $ length l >= intervals && case maximumMay (lastN intervals l) of
+        Just m -> m < wsmeans
+        Nothing -> False
   where
-    intervals = read $ T.unpack $ B.fromMaybe "30" (configString "WeakSignalIntervalsBeforeWeak" world)
-    wsmeans = read $ T.unpack $ B.fromMaybe "20" (configString "WeakSignalMeansLessThan" world)
-
-wlanIdle :: World -> IO Bool
-wlanIdle world = do
-    l <- atomRead $ wlanBandwidthLog world
-    M.return $ length l >= intervals && maximum (lastN intervals l) < imeans
-  where
-    intervals = read $ T.unpack $ B.fromMaybe "30" (configString "IdleIntervalsBeforeIdle" world)
-    imeans = read $ T.unpack $ B.fromMaybe "1000" (configString "IdleMeansLessThanXBytes" world)
+    intervals = B.maybe 30 (B.fromMaybe 30 . readMaybe . T.unpack) $ configString "WeakSignalIntervalsBeforeWeak" world
+    wsmeans = B.maybe 20 (B.fromMaybe 20 . readMaybe . T.unpack) $ configString "WeakSignalMeansLessThan" world
 
 -- it appears that scanning leads OpenBSD to switch to the higher powered
 -- BSSID if one is available with the same SSID, but the scanning process
--- interrupts and then renegotiates the current connection, regardless
+-- (sometimes) interrupts and then renegotiates the current connection, regardless
 -- whether a new BSSID with a stronger signal was found or whether we kept
 -- the same BSSID, so only scan when the signal is consistently weak and the
 -- connection is relatively idle
@@ -226,37 +223,7 @@ isWLAN i = B.isJust (U.find (U.regex [U.Multiline] "groups:.*wlan") (detail i))
 
 wlanEnabled :: World -> Bool
 wlanEnabled world =
-    B.isJust (wlanIf world) && read (T.unpack (B.fromMaybe "True" (configString "wlan_enabled" world)))
-
-recordWLANBandwidth :: World -> IO ()
-recordWLANBandwidth world = do
-    let logPrefix = "winot.recordWLANBandwidth"
-    M.when (wlanEnabled world) $ do
-        ni <- wlanBandwidth (wlanIf world)
-        M.when (B.isJust ni) $ do
-            l <- atomRead $ wlanBandwidthLog world
-            let !values = lastN (itemsToKeep-1) l ++ [read $ T.unpack $ B.fromJust ni]
-            atomWrite
-                (wlanBandwidthLog world)
-                values
-    log2 <- atomRead $ wlanBandwidthLog world
-    L.debugM logPrefix $ T.unpack $ T.concat ["wlanbw: ", T.pack (show (lastN 5 log2))]
-  where
-    itemsToKeep = 100
-
-wlanBandwidth :: Maybe T.Text -> IO (Maybe T.Text)
-wlanBandwidth wif =
-    if B.isJust wif then do
-        stats <- runRead $ "systat -w 100 -B ifstat " `T.append` sampleSizeInSeconds
-        M.return $ case U.find
-                (U.regex [U.Multiline] ("^" `T.append` B.fromJust wif `T.append` ".*"))
-                stats of
-            Just m -> T.words (B.fromJust $ U.group 0 m) `atMay` 6
-            Nothing -> Nothing
-    else
-        M.return Nothing
-  where
-    sampleSizeInSeconds = "1"
+    B.isJust (wlanIf world) && readDef True (T.unpack (B.fromMaybe "True" (configString "wlan_enabled" world)))
 
 recordWLANSignalStrength :: World -> IO ()
 recordWLANSignalStrength world = do
@@ -265,7 +232,7 @@ recordWLANSignalStrength world = do
         l <- atomRead $ wlanSignalStrengthLog world
         infos <- atomRead $ interfaceList world
         M.when (B.isJust (newItem infos)) $ do
-            let !values = lastN (itemsToKeep-1) l ++ [B.fromJust (newItem infos)]
+            let !values = lastN (itemsToKeep-1) l <> [B.fromJust (newItem infos)]
             atomWrite
                 (wlanSignalStrengthLog world)
                 values
@@ -276,7 +243,7 @@ recordWLANSignalStrength world = do
     wif = wlanIf world
     d infos = detailOrEmpty (DL.find (\i -> name i == B.fromJust wif) infos)
     newItem infos = case U.find (U.regex [U.Multiline] "bssid.* (.*)%") (d infos) of
-        Just m -> Just (read $ T.unpack $ B.fromJust $ U.group 1 m :: Int)
+        Just m -> readMaybe $ T.unpack $ B.fromJust $ U.group 1 m :: Maybe Int
         Nothing -> Nothing
 
 wlanNetworks :: World -> [O.Table]
@@ -303,7 +270,7 @@ wlanGateway wif = do
     let logPrefix = "winot.wlanGateway"
     if B.isJust wif then do
         L.debugM logPrefix "start"
-        lease <- readFile $ T.unpack ("/var/db/dhclient.leases." `T.append` B.fromJust wif)
+        lease <- IO.readFile $ T.unpack ("/var/db/dhclient.leases." `T.append` B.fromJust wif)
         let matches = case U.find (U.regex [U.Multiline] "routers (.*);") (T.pack lease) of
                           Just m -> U.group 1 m
                           Nothing -> Nothing
@@ -320,3 +287,16 @@ familiarSSIDs world =
         _ -> Nothing)
         (wlanNetworks world)
 
+scanRequested :: World -> IO Bool
+scanRequested world = do
+    ssls <- secondsSinceLastScan world
+    dfe <- SD.doesFileExist "/tmp/winot-scan"
+    let bscans = readDef 60 $ T.unpack $ B.fromMaybe "60" (configString "MinimumSecondsBetweenScans" world)
+    M.return $ ssls > bscans && dfe
+
+checkWLANScanRequest :: World -> IO ()
+checkWLANScanRequest world = do
+    sr <- scanRequested world
+    M.when sr $ wlanScan world
+    _ <- try (SD.removeFile "/tmp/winot-scan") :: IO (Either IOException ())
+    M.return ()

@@ -34,8 +34,6 @@ library
     Unsafe
 
   default-extensions:
-    NoImplicitPrelude
-    OverloadedStrings
 
   ghc-options:
     -Wall
@@ -76,7 +74,6 @@ library
 
 executable winot-exe
   default-extensions:
-    NoImplicitPrelude
 
   ghc-options:
     -threaded

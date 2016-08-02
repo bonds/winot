@@ -1,7 +1,11 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 module Util where
 
+import GHC.Base (String)
 import Protolude
-import Prelude (($), last, maximum, String, (++), read, take)
 import World
 import qualified Control.Concurrent as C
 import qualified Control.Concurrent.STM as S
@@ -49,10 +53,6 @@ tryLockFork n lock actions = do
             M.return ()
         M.return ()
 
-lastOrBlank :: [T.Text] -> T.Text
-lastOrBlank x@(_:_) = last x
-lastOrBlank _ = ""
-
 wasSuccess :: E.ExitCode -> Bool
 wasSuccess E.ExitSuccess = True
 wasSuccess (E.ExitFailure _) = False
@@ -61,9 +61,9 @@ firstIfAvailable :: T.Text -> [IFInfo] -> T.Text
 firstIfAvailable prefix ifs = T.concat [prefix, T.pack (show $ fan numbers)]
   where
       names = [ name i | i <- ifs, prefix `T.isPrefixOf` name i ]
-      numbers = [ read [T.last x] | x <- names ]
+      numbers = B.catMaybes [ readMaybe [T.last x] | x <- names ]
       fan :: [Int] -> Int
-      fan x@(_:_)  = maximum x + 1
+      fan x@(_:_)  = maybe 0 (+1) $ maximumMay x
       fan _        = 0
 
 -- ping up to X times, if any are OK, stop, and return OK
@@ -145,13 +145,11 @@ runReadEC command = do
     {-return ()-}
 
 lastMatchFirstGroup :: [[String]] -> Maybe T.Text
-lastMatchFirstGroup x@(_:_) =
-    case last x of
-        (_:y) -> case y of
-            (z:_) -> Just (T.pack z)
-            _ -> Nothing
-        _ -> Nothing
-lastMatchFirstGroup _ = Nothing
+lastMatchFirstGroup xs = case lastMay xs of
+    Just gs -> case headMay gs of
+        Just g -> Just $ T.pack g
+        Nothing -> Nothing
+    Nothing -> Nothing
 
 parseInterfaceList :: T.Text -> [IFInfo]
 parseInterfaceList il = list
@@ -164,9 +162,9 @@ parseInterfaceList il = list
     infos :: [T.Text] -> [(T.Text, [T.Text])] -> ([T.Text], [(T.Text, [T.Text])])
     infos [] records = ([], records)
     infos (x:xs) records
-        | startsWithInterfaceName = infos xs $ records ++ [(interfaceName, [x])]
+        | startsWithInterfaceName = infos xs $ records <> [(interfaceName, [x])]
         | otherwise = case lastMay records of
-              Just currentRecord -> infos xs $ initOrEmpty records ++ [(fst currentRecord, snd currentRecord ++ [x])]
+              Just currentRecord -> infos xs $ initOrEmpty records <> [(fst currentRecord, snd currentRecord <> [x])]
               Nothing            -> infos xs records
         where
         startsWithInterfaceName = B.isJust (U.find (U.regex [] "^[a-zA-Z]*[0-9]: ") x)
@@ -174,4 +172,50 @@ parseInterfaceList il = list
 
 initOrEmpty :: [a] -> [a]
 initOrEmpty = reverse . drop 1 . reverse -- gives a empty list if less than 2 in list
+
+idle :: World -> [Maybe Int] -> IO (Maybe Bool)
+idle world l = if length l >= intervals then do
+                   let ln = B.catMaybes $ lastN intervals l
+                   if length ln == intervals then
+                       case maximumMay ln of
+                           Just m -> if m < imeans then
+                                   M.return $ Just True
+                               else
+                                   M.return $ Just False
+                           Nothing -> M.return Nothing
+                   else
+                       M.return Nothing
+               else
+                   M.return Nothing
+  where
+    intervals = B.maybe 30 (B.fromMaybe 30 . readMaybe . T.unpack) $ configString "IdleIntervalsBeforeIdle" world
+    imeans = B.maybe 1000 (B.fromMaybe 1000 . readMaybe . T.unpack) $ configString "IdleMeansLessThanXBytes" world
+
+recordBandwidth :: World -> T.Text -> S.TVar [Maybe Int] -> IO ()
+recordBandwidth world interface bl = do
+    bw <- bandwidth world interface
+    l <- atomRead bl
+    let !values = lastN (itemsToKeep-1) l <> B.maybe [B.Nothing] (\x -> [readMaybe $ T.unpack x]) bw
+    atomWrite bl values
+    l' <- atomRead bl
+    L.debugM (T.unpack logPrefix) $ T.unpack $ T.concat [interface, "bw: ", T.pack (show (lastN 5 l'))]
+  where
+    itemsToKeep = 100
+    logPrefix = T.concat ["winot.recordBandwidth.", interface]
+
+bandwidth :: World -> T.Text -> IO (Maybe T.Text)
+bandwidth world interface = do
+    stats <- atomRead (interfaceStats world)
+    M.return $ case U.find
+            (U.regex [U.Multiline] ("^" `T.append` interface `T.append` ".*"))
+            stats of
+        Just m -> T.words (B.fromJust $ U.group 0 m) `atMay` 6
+        Nothing -> Nothing
+
+updateInterfaceStats :: World -> IO ()
+updateInterfaceStats world = do
+    stats <- runRead $ "systat -w 100 -B ifstat " `T.append` sampleSizeInSeconds
+    atomWrite (interfaceStats world) stats
+  where
+    sampleSizeInSeconds = "1"
 
