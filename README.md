@@ -18,6 +18,8 @@ connections at all times.
   connects to it
 * status bar icon that shows your connection status (requires Gnome)
 
+![Imgur](http://i.imgur.com/4RdqQ00.gif)
+
 # Installation
 
 ## Requirements
