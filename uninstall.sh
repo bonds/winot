@@ -2,7 +2,7 @@
 
 GEUUID=winot@scott.ggr.com
 
-if [[ `id -u` != 0 ]]; then
+if [ "$(id -u)" != "0" ]; then
     echo "error: this script must be run by root"
     exit 1
 fi
@@ -15,5 +15,5 @@ rm /usr/local/bin/winot
 rm /etc/rc.d/winot
 rm -r /usr/local/share/gnome-shell/extensions/$GEUUID
 
-echo done
+echo "done"
 echo "you must manually delete /etc/winot (the config file) if you want it removed"
