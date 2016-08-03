@@ -51,12 +51,14 @@ connections at all times.
 
 * [how to setup a layer 3 VPN over SSH][2]
 * Theo suggesting something like [this is a bad idea][10]
+* [raceless network][11]
 
 ## Alternatives
 
 * [wiconfig][1]
 * [wifind][8]
 * [wireless][9]
+* [autonet][12]
 * [ifstated][4], a service for monitoring the network and running scripts when something changes
 * manually configure wwan using [pppd][5], wlan using [ifconfig][6], vpn [using ssh][2] or some other tool of your choice, and [route][7] for changing your default route
 
@@ -70,4 +72,5 @@ connections at all times.
   [8]: http://marc.info/?l=openbsd-misc&m=146488514620893&w=2
   [9]: https://github.com/farhaven/wireless
   [10]: http://marc.info/?l=openbsd-misc&m=147014820224401&w=2
-
+  [11]: http://www.openbsd.org/papers/eurobsdcon2015-raceless-network/index.html
+  [12]: https://github.com/mrdomino/autonet
