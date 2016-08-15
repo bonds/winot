@@ -5,7 +5,7 @@
 module Loop where
 
 import Protolude
-import Control.Monad ((>>=), (>>))
+import Control.Monad ((>>))
 import Route
 import Status
 import Util
@@ -135,10 +135,10 @@ mainLoop world = do
     L.debugM logPrefix $ T.unpack $ "thisLoop: " `T.append` T.pack (show (lastMay (loopTimes world')))
 
     _ <- C.forkIO $ recordWLANSignalStrength world'
-    M.when (B.isJust $ wlanIf world') $ do
+    M.when (wlanEnabled world') $ do
         _ <- C.forkIO $ recordBandwidth world' (B.fromJust $ wlanIf world') (wlanBandwidthLog world')
         M.return ()
-    M.when (B.isJust $ vpnIf world') $ do
+    M.when (vpnEnabled world') $ do
         _ <- C.forkIO $ recordBandwidth world' (B.fromJust $ vpnIf world') (vpnBandwidthLog world')
         M.return ()
 
@@ -199,14 +199,14 @@ cleanUp world = do
 
 updateProcessList :: World -> IO ()
 updateProcessList world = do
-    list <- runRead "ps -axw"
-    atomWrite (processList world) list
+    lst <- runRead "ps -axw"
+    atomWrite (processList world) lst
     M.return ()
 
 updateInterfaceList :: World -> IO ()
 updateInterfaceList world = do
-    list <- runRead "ifconfig"
-    atomWrite (interfaceList world) (parseInterfaceList list)
+    lst <- runRead "ifconfig"
+    atomWrite (interfaceList world) (parseInterfaceList lst)
     M.return ()
 
 recordLoopTimes :: World -> IO World

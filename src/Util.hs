@@ -13,6 +13,7 @@ import qualified Control.Concurrent.Thread.Delay as D
 import qualified Control.Monad as M
 import qualified Data.Text as T
 import qualified GHC.IO.Handle as H
+import qualified Safe as F
 import qualified System.Exit as E
 import qualified System.Log.Logger as L
 import qualified System.Process as P
@@ -63,7 +64,7 @@ firstIfAvailable prefix ifs = T.concat [prefix, T.pack (show $ fan numbers)]
       names = [ name i | i <- ifs, prefix `T.isPrefixOf` name i ]
       numbers = B.catMaybes [ readMaybe [T.last x] | x <- names ]
       fan :: [Int] -> Int
-      fan x@(_:_)  = maybe 0 (+1) $ maximumMay x
+      fan x@(_:_)  = maybe 0 (+1) $ F.maximumMay x
       fan _        = 0
 
 -- ping up to X times, if any are OK, stop, and return OK
@@ -99,8 +100,8 @@ runEC command = do
 
 runRead :: T.Text -> IO T.Text
 runRead command = do
-    (stdout,_) <- runReadEC command
-    M.return stdout
+    (out,_) <- runReadEC command
+    M.return out
 
 runReadEC :: T.Text -> IO (T.Text, E.ExitCode)
 runReadEC command = do
@@ -112,13 +113,13 @@ runReadEC command = do
         (P.shell $ T.unpack command)
         {P.std_out = P.CreatePipe, P.std_err = P.CreatePipe}
     ec <- P.waitForProcess ph
-    stdout <- H.hGetContents hout
-    stderr <- H.hGetContents herr
+    out <- H.hGetContents hout
+    err <- H.hGetContents herr
     {-debugStdout logPrefix (T.lines $ T.pack stdout) logSet-}
     {-debugStderr logPrefix (T.lines $ T.pack stderr) logSet-}
-    mapM_ (printLine logPrefix "| ") (T.lines $ T.pack stdout)
-    mapM_ (printLine logPrefix "x ") (T.lines $ T.pack stderr)
-    M.return (T.pack stdout, ec)
+    mapM_ (printLine logPrefix "| ") (T.lines $ T.pack out)
+    mapM_ (printLine logPrefix "x ") (T.lines $ T.pack err)
+    M.return (T.pack out, ec)
  where
    printLine logPre linePrefix line =
        L.debugM logPre $ T.unpack $ T.concat [linePrefix, line]
@@ -152,12 +153,11 @@ lastMatchFirstGroup xs = case lastMay xs of
     Nothing -> Nothing
 
 parseInterfaceList :: T.Text -> [IFInfo]
-parseInterfaceList il = list
+parseInterfaceList il = [IFInfo { name = fst record
+                                , detail = T.unlines $ snd record
+                                }
+                            | record <- snd $ infos (T.lines il) []]
   where
-    list = [IFInfo { name = fst record
-                   , detail = T.unlines $ snd record
-                   }
-           | record <- snd $ infos (T.lines il) []]
     {-@ infos :: i:[T.Text] -> [(T.Text, [T.Text])] -> ([T.Text], [(T.Text, [T.Text])]) / [len i] @-}
     infos :: [T.Text] -> [(T.Text, [T.Text])] -> ([T.Text], [(T.Text, [T.Text])])
     infos [] records = ([], records)
@@ -177,7 +177,7 @@ idle :: World -> [Maybe Int] -> IO (Maybe Bool)
 idle world l = if length l >= intervals then do
                    let ln = B.catMaybes $ lastN intervals l
                    if length ln == intervals then
-                       case maximumMay ln of
+                       case F.maximumMay ln of
                            Just m -> if m < imeans then
                                    M.return $ Just True
                                else

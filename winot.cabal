@@ -16,22 +16,15 @@ tested-with:
 Bug-Reports:         https://github.com/bonds/winot/issues
 
 library
-  exposed-modules:     Protolude
-                     , Loop
-                     , Wlan
-                     , Wwan
+  exposed-modules:     Loop
                      , Route
-                     , World
+                     , Status
                      , Util
                      , Vpn
-                     , Status
+                     , Wlan
+                     , World
+                     , Wwan
   other-modules:
-    Applicative
-    Bool
-    Debug
-    List
-    Monad
-    Unsafe
 
   default-extensions:
 
@@ -68,6 +61,7 @@ library
                      , aeson
                      , aeson-pretty
                      , directory
+                     , protolude
 
   hs-source-dirs:      src
   default-language:    Haskell2010
@@ -95,6 +89,7 @@ executable winot-exe
                      , bytestring       >= 0.10 && <0.11
                      , winot
                      , liquidhaskell-cabal
+                     , protolude
 
   main-is:             Main.hs
   hs-source-dirs:      app

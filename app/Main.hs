@@ -2,8 +2,8 @@
 
 module Main where
 
-import Protolude
 import Loop
+import Protolude
 
 main :: IO ()
 main = loop

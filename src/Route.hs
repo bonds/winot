@@ -26,6 +26,7 @@ checkRoute world = do
         wlg <- wlanGateway (wlanIf world)
         vpnok <- atomRead $ vpnOK world
         let ip = configString "vpn_server_private_ip" world
+
         if vpnok && B.isJust ip then do
             L.debugM logPrefix "route choice: vpnok"
             rl <- atomRead (routeList world)
@@ -97,8 +98,8 @@ routeVPNViaWLAN rl wlg world = do
 
 updateRouteList :: World -> IO ()
 updateRouteList world = do
-    list <- runRead "route -n show -inet"
-    atomWrite (routeList world) list
+    lst <- runRead "route -n show -inet"
+    atomWrite (routeList world) lst
 
 defaultRouteIP :: T.Text -> Maybe T.Text
 defaultRouteIP rl = case ip of

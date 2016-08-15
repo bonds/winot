@@ -14,6 +14,7 @@ import qualified Data.List as DL
 import qualified Data.Maybe as B
 import qualified Data.Text as T
 import qualified Data.Text.ICU as U
+import qualified Safe as F
 import qualified System.Clock as K
 import qualified System.Directory as SD
 import qualified System.IO as IO
@@ -130,12 +131,12 @@ wlanSignalOK world = do
     wi   <- idle world bl
     M.return $ not $ ssls > bscans && wsw && B.fromMaybe False wi
   where
-    bscans = readDef 60 $ T.unpack $ B.fromMaybe "60" (configString "MinimumSecondsBetweenScans" world)
+    bscans = F.readDef 60 $ T.unpack $ B.fromMaybe "60" (configString "MinimumSecondsBetweenScans" world)
 
 wlanSignalWeak :: World -> IO Bool
 wlanSignalWeak world = do
     l <- atomRead $ wlanSignalStrengthLog world
-    M.return $ length l >= intervals && case maximumMay (lastN intervals l) of
+    M.return $ length l >= intervals && case F.maximumMay (lastN intervals l) of
         Just m -> m < wsmeans
         Nothing -> False
   where
@@ -154,14 +155,14 @@ wlanScan world = do
     M.when (B.isJust wif) $ do
         currentTime <- K.getTime K.Realtime
         atomWrite (lastScan world) (K.sec currentTime)
-        stdout <- runRead $ "ifconfig " `T.append` B.fromJust wif `T.append` " scan"
-        L.debugM logPrefix $ T.unpack $ "scan raw: " `T.append` stdout
-        L.debugM logPrefix $ T.unpack $ "scan aps: " `T.append` T.pack (show (list stdout))
-        atomWrite (wlanList world) (list stdout)
+        out <- runRead $ "ifconfig " `T.append` B.fromJust wif `T.append` " scan"
+        L.debugM logPrefix $ T.unpack $ "scan raw: " `T.append` out
+        L.debugM logPrefix $ T.unpack $ "scan aps: " `T.append` T.pack (show (lst out))
+        atomWrite (wlanList world) (lst out)
         M.return ()
   where
     wif = wlanIf world
-    list r = B.mapMaybe apLineToInfo (T.lines r)
+    lst r = B.mapMaybe apLineToInfo (T.lines r)
 
 apLineToInfo :: T.Text -> Maybe APInfo
 apLineToInfo line =
@@ -223,7 +224,7 @@ isWLAN i = B.isJust (U.find (U.regex [U.Multiline] "groups:.*wlan") (detail i))
 
 wlanEnabled :: World -> Bool
 wlanEnabled world =
-    B.isJust (wlanIf world) && readDef True (T.unpack (B.fromMaybe "True" (configString "wlan_enabled" world)))
+    B.isJust (wlanIf world) && F.readDef True (T.unpack (B.fromMaybe "True" (configString "wlan_enabled" world)))
 
 recordWLANSignalStrength :: World -> IO ()
 recordWLANSignalStrength world = do
@@ -291,7 +292,7 @@ scanRequested :: World -> IO Bool
 scanRequested world = do
     ssls <- secondsSinceLastScan world
     dfe <- SD.doesFileExist "/tmp/winot-scan"
-    let bscans = readDef 60 $ T.unpack $ B.fromMaybe "60" (configString "MinimumSecondsBetweenScans" world)
+    let bscans = F.readDef 60 $ T.unpack $ B.fromMaybe "60" (configString "MinimumSecondsBetweenScans" world)
     M.return $ ssls > bscans && dfe
 
 checkWLANScanRequest :: World -> IO ()
