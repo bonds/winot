@@ -24,7 +24,7 @@ connections at all times.
 
 ## Requirements
 
-* OpenBSD 5.8 or later
+* OpenBSD 6.0 or later
 * [Stack][3]
 * icu4c package
 * a wwan adapter with a properly configured pppd peer configured, or a wifi

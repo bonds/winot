@@ -1,12 +1,15 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
 module World where
 
+import Protolude
 import qualified Control.Concurrent.STM as S
 import qualified Control.Monad as M
 import qualified Data.HashMap.Lazy as H
 import qualified Data.Text as T
 import qualified GHC.Int as G
+import qualified GHC.Show (show)
 import qualified Text.Toml as O
 import qualified Text.Toml.Types as O
 import qualified GHC.Generics as N
@@ -47,7 +50,7 @@ data World = World { config :: O.Table
                    }
 
 instance Show World where
-    show w = show [show (config w), show (loopTimes w)]
+    show w = GHC.Show.show [GHC.Show.show (config w), GHC.Show.show (loopTimes w)]
 
 data IFInfo = IFInfo { name :: T.Text
                      , detail :: T.Text
@@ -94,7 +97,7 @@ initialWorld = do
     is <- S.atomically $ S.newTVar T.empty
 
     con <- readFile "/etc/winot"
-    let conf = O.parseTomlDoc "" $ T.pack con
+    let conf = O.parseTomlDoc "" con
 
     M.return $ case conf of
                Left _ -> Nothing

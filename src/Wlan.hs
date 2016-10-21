@@ -92,9 +92,12 @@ connectWLANConn world = do
             L.debugM logPrefix "connecting to the wlan"
             wlanScan world
             aps <- atomRead $ wlanList world
+            M.when (null aps) $ L.debugM logPrefix "no networks found"
             let fs = familiarSSIDs world
             let familiarAndInRange = filter (\x -> ssid x `elem` fs) aps
-            M.unless (null familiarAndInRange) $ do
+            if null familiarAndInRange then
+                L.debugM logPrefix "no familiar networks found"
+            else do
                 let s = B.maybe "" ssid $ lastMay $ DL.sortOn strength familiarAndInRange
                 let a = B.fromJust $ lookupSSID s world
                 let nwid = case a ! T.pack "ssid" of
@@ -141,7 +144,8 @@ wlanSignalWeak world = do
         Nothing -> False
   where
     intervals = B.maybe 30 (B.fromMaybe 30 . readMaybe . T.unpack) $ configString "WeakSignalIntervalsBeforeWeak" world
-    wsmeans = B.maybe 20 (B.fromMaybe 20 . readMaybe . T.unpack) $ configString "WeakSignalMeansLessThan" world
+    wsmeans = B.maybe 20 (B.fromMaybe 20 . readMaybe . T.unpack) $
+        configString "WeakSignalMeansLessThan" world
 
 -- it appears that scanning leads OpenBSD to switch to the higher powered
 -- BSSID if one is available with the same SSID, but the scanning process
@@ -164,9 +168,14 @@ wlanScan world = do
     wif = wlanIf world
     lst r = B.mapMaybe apLineToInfo (T.lines r)
 
+--                nwid blahdeblah chan 1 bssid ab:cd:ef:93:20:ea -80dBm HT-MCS23 short_preamble,short_slottime
+--                nwid "Network With Space" chan 48 bssid ab:cd:ef:24:1c:ca -79dBm HT-MCS15 privacy,short_slottime,wpa2
 apLineToInfo :: T.Text -> Maybe APInfo
 apLineToInfo line =
-    case U.find (U.regex [U.Multiline] "^[\t ]*nwid (.*) chan (.*) bssid (.*) (.*)% (.*)M (.*)") line of
+    -- OpenBSD 5.9 format: case U.find (U.regex [U.Multiline] "^[\t ]*nwid (.*) chan (.*) bssid (.*) (.*)% (.*)M (.*)") line of
+    -- OpenBSD 6.0 format
+    case U.find (U.regex [U.Multiline] "^[\t ]*nwid (.*) chan (.*) bssid (.*) -(.*)dBm (.*) (.*)") line of
+        Nothing -> Nothing
         Just m ->
             Just APInfo { ssid       = T.replace "\"" "" $ B.fromJust $ U.group 1 m
                         , chan       = B.fromJust $ U.group 2 m
@@ -176,7 +185,6 @@ apLineToInfo line =
                         , options    = T.splitOn "," $ B.fromJust $ U.group 6 m
                         , raw = line
                 }
-        _ -> Nothing
 
 secondsSinceLastScan :: World -> IO Integer
 secondsSinceLastScan world = do

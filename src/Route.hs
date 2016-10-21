@@ -51,7 +51,7 @@ checkRoute world = do
     logPrefix = "winot.checkRoutes"
     resetRoutes w r = do
         clearDefaultRoute r
-        clearVPNRoute w
+        -- clearVPNRoute w
         atomWrite (routeVia w) None
         M.return ()
     tryWWAN w = do
