@@ -127,7 +127,7 @@ loop = do
 mainLoop :: World -> IO World
 mainLoop world = do
     let logPrefix = "winot.mainLoop"
-    let secondsBetweenLoops = 1
+    let secondsBetweenLoops = 5
     L.debugM logPrefix "start loop"
 
     world' <- recordLoopTimes world
@@ -143,11 +143,12 @@ mainLoop world = do
         M.return ()
 
     -- skip most of the work if we're in our steady state of being connected to VPN
-    dr <- runRead "route -n get -inet default"
-    vpnok <- maybe
-        (M.return False)
-        (\ip -> if ip `T.isInfixOf` dr then vpnConnOK world' else M.return False)
-        (configString "vpn_server_private_ip" world)
+    -- dr <- runRead "route -n get -inet default"
+    -- vpnok <- maybe
+    --     (M.return False)
+    --     (\ip -> if ip `T.isInfixOf` dr then vpnConnOK world' else M.return False)
+    --     (configString "vpn_server_private_ip" world)
+    let vpnok = False
 
     tryLockFork "interfaceListLock" (interfaceListLock world') (updateInterfaceList world')
     tryLockFork "interfaceStatsLock" (interfaceStatsLock world') (updateInterfaceStats world')
@@ -199,7 +200,7 @@ cleanUp world = do
 
 updateProcessList :: World -> IO ()
 updateProcessList world = do
-    lst <- runRead "ps -axw"
+    lst <- runRead "ps axw"
     atomWrite (processList world) lst
     M.return ()
 

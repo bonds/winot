@@ -111,26 +111,51 @@ sshAuthSock world =
     fname = configString "ssh_auth_sock_file" world
 
 vpnProcOK :: World -> IO Bool
-vpnProcOK world =
+vpnProcOK world = do
+    let logPrefix = "winot.vpnProcOK"
     if B.isJust vcomm then do
         procs <- atomRead $ processList world
-        M.return $ B.fromJust vcomm `T.isInfixOf` procs
-    else
+        if B.fromJust vcomm `T.isInfixOf` procs then do
+            L.debugM logPrefix "True"
+            return True
+        else do
+            L.debugM logPrefix "process not found"
+            return False
+    else do
+        L.debugM logPrefix "command not configured"
         M.return False
   where
     vcomm = vpnCommand world
 
 vpnConnOK :: World -> IO Bool
 vpnConnOK world = do
-    let logPrefix = "winot.vpnConnOK"
-    L.debugM logPrefix "start"
     bl <- atomRead $ vpnBandwidthLog world
     i <- idle world bl
-    if B.fromMaybe True i then maybe (M.return False) (ping 3) ip
-    else M.return True
-    {-maybe (M.return False) (ping 3) $ Just "8.8.8.8"-}
+    case i of
+        Nothing -> do
+            L.debugM logPrefix "cannot tell if idle"
+            test
+        Just True -> do
+            L.debugM logPrefix "idle"
+            test
+        Just False -> do
+            L.debugM logPrefix "active"
+            M.return True
   where
-    ip = configString "vpn_server_private_ip" world
+    logPrefix = "winot.vpnConnOK"
+    test =
+        case configString "vpn_server_private_ip" world of
+            Nothing -> do
+                L.debugM logPrefix "no server private ip configured"
+                return False
+            Just ip' -> do
+                result <- ping 3 ip'
+                if result then do
+                    L.debugM logPrefix "ping ok"
+                    return True
+                else do
+                    L.debugM logPrefix "ping bad"
+                    return False
 
 chooseVPNIf :: World -> IO (Maybe T.Text)
 chooseVPNIf world = do

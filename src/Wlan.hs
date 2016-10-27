@@ -20,6 +20,7 @@ import qualified System.Directory as SD
 import qualified System.IO as IO
 import qualified System.Log.Logger as L
 import qualified Text.Toml.Types as O
+import qualified Text.Trifecta as Tr
 
 default (T.Text, Integer, Double)
 
@@ -185,6 +186,80 @@ apLineToInfo line =
                         , options    = T.splitOn "," $ B.fromJust $ U.group 6 m
                         , raw = line
                 }
+
+apLineToInfo' :: T.Text -> Tr.Result APInfo
+apLineToInfo' line =
+    -- OpenBSD 5.9 format: case U.find (U.regex [U.Multiline] "^[\t ]*nwid (.*) chan (.*) bssid (.*) (.*)% (.*)M (.*)") line of
+    -- OpenBSD 6.0 format
+    -- case U.find (U.regex [U.Multiline] "^[\t ]*nwid (.*) chan (.*) bssid (.*) -(.*)dBm (.*) (.*)") line of
+    Tr.parseString (do
+        _ <- Tr.whiteSpace
+        n  <- nwidP
+        c  <- chanP
+        b  <- bssidP
+        st <- strP
+        sp <- speP
+        o <-  optP
+
+        return APInfo  { ssid       = n
+                  , chan       = c
+                  , bssid      = b
+                  , strength   = st
+                  , speed      = sp
+                  , options    = o
+                  , raw        = line
+                  }
+        )
+        mempty $ T.unpack line
+
+  where
+    nwidP :: Tr.Parser T.Text
+    nwidP = do
+        _ <- Tr.text "nwid"
+        _ <- Tr.space
+        result <-
+            Tr.stringLiteral
+            <|>
+            (do
+              i <- Tr.some (Tr.notChar ' ')
+              _ <- Tr.space
+              return i
+            )
+        return $ T.pack result
+
+    chanP :: Tr.Parser T.Text
+    chanP = do
+        _ <- Tr.text "chan"
+        _ <- Tr.space
+        result <- Tr.some Tr.digit
+        _ <- Tr.space
+        return $ T.pack result
+
+    bssidP :: Tr.Parser T.Text
+    bssidP = do
+        _ <- Tr.text "bssid"
+        _ <- Tr.space
+        result <- Tr.some (Tr.notChar ' ')
+        _ <- Tr.space
+        return $ T.pack result
+
+    strP :: Tr.Parser T.Text
+    strP = do
+        result <- Tr.integer
+        _ <- Tr.text "dBm"
+        _ <- Tr.space
+        return $ show result
+
+    speP :: Tr.Parser T.Text
+    speP = do
+        result <- Tr.some (Tr.notChar ' ')
+        _ <- Tr.space
+        return $ T.pack result
+
+    optP :: Tr.Parser [T.Text]
+    optP = do
+        result <- Tr.commaSep $ Tr.some Tr.characterChar
+        return $ map T.pack result
 
 secondsSinceLastScan :: World -> IO Integer
 secondsSinceLastScan world = do
