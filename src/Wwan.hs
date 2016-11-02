@@ -55,6 +55,7 @@ connectWWAN world = do
             L.infoM logPrefix "connecting to the wwan"
             connectTime <- K.getTime K.Realtime
             atomWrite (lastWWANConnect world) (K.sec connectTime)
+            run "pkill pppd"
             run $ "/usr/sbin/pppd call " `T.append` B.fromJust wp
             D.delay $ waitXSecondsBeforeDone * (10::Integer)^(6::Integer)
 

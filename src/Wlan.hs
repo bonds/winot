@@ -155,19 +155,32 @@ wlanSignalWeak world = do
 -- the same BSSID, so only scan when the signal is consistently weak and the
 -- connection is relatively idle
 wlanScan :: World -> IO ()
-wlanScan world = do
-    let logPrefix = "winot.wlanScan"
+wlanScan world =
     M.when (B.isJust wif) $ do
         currentTime <- K.getTime K.Realtime
         atomWrite (lastScan world) (K.sec currentTime)
         out <- runRead $ "ifconfig " `T.append` B.fromJust wif `T.append` " scan"
-        L.debugM logPrefix $ T.unpack $ "scan raw: " `T.append` out
-        L.debugM logPrefix $ T.unpack $ "scan aps: " `T.append` T.pack (show (lst out))
-        atomWrite (wlanList world) (lst out)
+        aps <- lst out
+        mapM_
+            (L.debugM logPrefix . T.unpack . T.append "scan raw: ")
+            (T.lines out)
+        L.debugM logPrefix . T.unpack . T.append "scan aps: " $ T.pack (show aps)
+        atomWrite (wlanList world) aps
         M.return ()
   where
+    logPrefix = "winot.wlanScan"
     wif = wlanIf world
-    lst r = B.mapMaybe apLineToInfo (T.lines r)
+    -- lst r = B.mapMaybe apLineToInfo (T.lines r)
+    lst r = do
+        results <- mapM (\line ->
+                    case apLineToInfo' line of
+                        Tr.Success a -> return $ Just a
+                        Tr.Failure e -> do
+                            L.debugM logPrefix $ show e
+                            return Nothing
+                )
+                (T.lines r)
+        return $ B.catMaybes results
 
 --                nwid blahdeblah chan 1 bssid ab:cd:ef:93:20:ea -80dBm HT-MCS23 short_preamble,short_slottime
 --                nwid "Network With Space" chan 48 bssid ab:cd:ef:24:1c:ca -79dBm HT-MCS15 privacy,short_slottime,wpa2
@@ -355,9 +368,11 @@ wlanGateway wif = do
     if B.isJust wif then do
         L.debugM logPrefix "start"
         lease <- IO.readFile $ T.unpack ("/var/db/dhclient.leases." `T.append` B.fromJust wif)
-        let matches = case U.find (U.regex [U.Multiline] "routers (.*);") (T.pack lease) of
-                          Just m -> U.group 1 m
-                          Nothing -> Nothing
+        let matches = case U.findAll (U.regex [U.Multiline] "routers (.*);") (T.pack lease) of
+                          ms@(_:_) -> case lastMay ms of
+                              Just m -> U.group 1 m
+                              Nothing -> Nothing
+                          _ -> Nothing
         L.debugM logPrefix $ T.unpack $ "wlanGateway matches: " `T.append` T.pack (show matches)
         M.return matches
     else M.return Nothing

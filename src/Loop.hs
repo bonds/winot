@@ -127,7 +127,7 @@ loop = do
 mainLoop :: World -> IO World
 mainLoop world = do
     let logPrefix = "winot.mainLoop"
-    let secondsBetweenLoops = 5
+    let secondsBetweenLoops = 1
     L.debugM logPrefix "start loop"
 
     world' <- recordLoopTimes world
