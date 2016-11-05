@@ -21,23 +21,33 @@ checkWWAN :: World -> IO ()
 checkWWAN world = do
     let logPrefix = "winot.checkWWAN"
 
-    procList <- atomRead $ processList world
-    ifList <- atomRead $ interfaceList world
-    let status = wwanEnabled world
-              && wwanProcOK procList
-              && B.isJust wif
-              && wwanConnOK (B.fromJust wif) ifList :: Bool
-    L.debugM logPrefix $ T.unpack $ T.concat ["wwanOK ", T.pack (show status)]
-    oldOK <- atomRead (wwanOK world)
-    M.unless (oldOK == status) $ atomWrite (wwanOK world) status
-
-    if status then M.unless oldOK $ L.infoM logPrefix "connected to wwan"
-    else M.when (wwanEnabled world) $ do
-        connectWWAN world
-        M.return ()
-
-  where
-    wif = wwanIf world
+    if B.isJust (configString "wwan_peer" world) then do
+        wif <- atomRead (wwanIf world)
+        if B.isJust wif then do
+            procList <- atomRead $ processList world
+            if wwanProcOK procList then do
+                ifList <- atomRead $ interfaceList world
+                if wwanConnOK (B.fromJust wif) ifList then do
+                    oldOK <- atomRead (wwanOK world)
+                    M.unless oldOK $ do
+                        L.infoM logPrefix "connected to wwan"
+                        atomWrite (wlanOK world) True
+                else do
+                    L.debugM logPrefix "wwan choice: noconnection"
+                    atomWrite (wwanOK world) False
+                    connectWWAN world
+            else do
+                L.debugM logPrefix "wwan choice: noprocess"
+                atomWrite (wwanOK world) False
+                connectWWAN world
+        else do
+            L.debugM logPrefix "wwan choice: nointerface"
+            atomWrite (wwanOK world) False
+            setupWWANIf world
+            connectWWAN world
+    else do
+        L.debugM logPrefix "wwan choice: noconfig"
+        atomWrite (wwanOK world) False
 
 connectWWAN :: World -> IO ()
 connectWWAN world = do
@@ -55,7 +65,7 @@ connectWWAN world = do
             L.infoM logPrefix "connecting to the wwan"
             connectTime <- K.getTime K.Realtime
             atomWrite (lastWWANConnect world) (K.sec connectTime)
-            run "pkill pppd"
+            run "pkill -f pppd"
             run $ "/usr/sbin/pppd call " `T.append` B.fromJust wp
             D.delay $ waitXSecondsBeforeDone * (10::Integer)^(6::Integer)
 
@@ -74,16 +84,12 @@ wwanConnOK wwif infos = "inet" `T.isInfixOf` detailOrEmpty (DL.find nameIsWwif i
     nameIsWwif :: IFInfo -> Bool
     nameIsWwif info = name info == wwif
 
-chooseWWANIf :: World -> IO (Maybe T.Text)
-chooseWWANIf world = do
+setupWWANIf :: World -> IO ()
+setupWWANIf world = do
     let logPrefix = "winot.chooseWWANIf"
     ifs <- atomRead (interfaceList world)
     let configIf = configString "wwan_if" world
     let wif = B.fromMaybe (firstIfAvailable "ppp" ifs) configIf
     L.debugM logPrefix $ T.unpack $ "chose " `T.append` wif
-    M.return $ Just wif
-
-wwanEnabled :: World -> Bool
-wwanEnabled world =
-    B.isJust (wwanIf world) && B.isJust (configString "wwan_peer" world)
-
+    atomWrite (wwanIf world) $ Just wif
+    run $ "ifconfig " `T.append` wif `T.append` " create up"

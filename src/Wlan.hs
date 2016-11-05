@@ -28,44 +28,52 @@ checkWLAN :: World -> IO ()
 checkWLAN world = do
     let logPrefix = "winot.checkWLAN"
 
-    ifList <- atomRead $ interfaceList world
-
-    if wlanEnabled world then do
-        checkWLANScanRequest world
-        if wlanConnOK (B.fromJust wif) ifList (familiarSSIDs world):: Bool then
-            if wlanIPOK (B.fromJust wif) ifList then do
-                wsok <- wlanSignalOK world
-                if wsok then do
-                    wlg <- wlanGateway (wlanIf world)
-                    pok <- maybe (M.return False) (ping 3) wlg
-                    if pok then do
-                        oldOK <- atomRead (wlanOK world)
-                        M.unless oldOK $ do
-                            L.infoM logPrefix "connected to wlan"
-                            atomWrite (wlanOK world) True
+    if F.readDef True
+            (T.unpack
+                (B.fromMaybe "True"
+                    (configString "wlan_enabled" world))) then do
+        wif <- atomRead (wlanIf world)
+        if B.isJust wif then do
+            checkWLANScanRequest world
+            ifList <- atomRead $ interfaceList world
+            if wlanConnOK (B.fromJust wif) ifList (familiarSSIDs world):: Bool then
+                if wlanIPOK (B.fromJust wif) ifList then do
+                    wsok <- wlanSignalOK world
+                    if wsok then do
+                        wlg <- wlanGateway wif
+                        pok <- maybe (M.return False) (ping 3) wlg
+                        if pok then do
+                            oldOK <- atomRead (wlanOK world)
+                            M.unless oldOK $ do
+                                L.infoM logPrefix "connected to wlan"
+                                atomWrite (wlanOK world) True
+                        else do
+                            L.debugM logPrefix "wlan choice: badping"
+                            go connectWLANConn world
                     else do
-                        L.debugM logPrefix "wlan choice: pingbad"
-                        go connectWLANConn world
+                        L.infoM logPrefix "looking for a closer wlan access point"
+                        L.debugM logPrefix "wlan choice: weaksignal"
+                        go wlanScan world
                 else do
-                    L.infoM logPrefix "looking for a closer wlan access point"
-                    L.debugM logPrefix "wlan choice: wsbad"
-                    go wlanScan world
+                    L.debugM logPrefix "wlan choice: noip"
+                    atomWrite (wlanOK world) False
+                    dhclient (B.fromJust wif)
             else do
-                L.debugM logPrefix "wlan choice: wlanipbad"
-                atomWrite (wlanOK world) False
-                dhclient (B.fromJust wif)
+                L.debugM logPrefix "wlan choice: noconnection"
+                go connectWLANConn world
         else do
-            L.debugM logPrefix "wlan choice: wlanconnbad"
+            L.debugM logPrefix "wlan choice: nointerface"
+            atomWrite (wlanOK world) False
+            setupWLANIf world
             go connectWLANConn world
     else do
-        L.debugM logPrefix "wlan choice: wlandisabled"
+        L.debugM logPrefix "wlan choice: disabled"
         atomWrite (wlanOK world) False
 
     status <- atomRead (wlanOK world)
     L.debugM logPrefix $ T.unpack $ "wlanOK " `T.append` T.pack (show status)
 
   where
-    wif = wlanIf world
     go todo w = do
         atomWrite (wlanOK w) False
         _ <- todo w
@@ -88,7 +96,7 @@ connectWLANConn world = do
     lastConnectAttempt <- atomRead (lastWLANConnect world)
 
     M.when ((K.sec startTime - lastConnectAttempt) > waitXSecondsBeforeRetry) $ do
-        let wif = wlanIf world
+        wif <- atomRead $ wlanIf world
         M.when (B.isJust wif) $ do
             L.debugM logPrefix "connecting to the wlan"
             wlanScan world
@@ -155,7 +163,8 @@ wlanSignalWeak world = do
 -- the same BSSID, so only scan when the signal is consistently weak and the
 -- connection is relatively idle
 wlanScan :: World -> IO ()
-wlanScan world =
+wlanScan world = do
+    wif <- atomRead $ wlanIf world
     M.when (B.isJust wif) $ do
         currentTime <- K.getTime K.Realtime
         atomWrite (lastScan world) (K.sec currentTime)
@@ -169,7 +178,6 @@ wlanScan world =
         M.return ()
   where
     logPrefix = "winot.wlanScan"
-    wif = wlanIf world
     -- lst r = B.mapMaybe apLineToInfo (T.lines r)
     lst r = do
         results <- mapM (\line ->
@@ -302,9 +310,9 @@ currentBSSID wlif infos = case U.find (U.regex [U.Multiline] "bssid (.*) [0-9]{1
                             Just m -> U.group 1 m
                             _      -> Nothing
 
-chooseWLANIf :: World -> IO (Maybe T.Text)
-chooseWLANIf world = do
-    let logPrefix = "winot.chooseWLANIf"
+setupWLANIf :: World -> IO ()
+setupWLANIf world = do
+    let logPrefix = "winot.setupWLANIf"
     L.debugM logPrefix "start"
     ifs <- atomRead (interfaceList world)
     let configWif = configString "wlan_if" world
@@ -313,23 +321,20 @@ chooseWLANIf world = do
                      (w:_)     -> Just w
                      _         -> Nothing
     L.debugM logPrefix $ T.unpack $ "chose " `T.append` B.fromMaybe "none" wif
-    M.return wif
+    atomWrite (wlanIf world) wif
 
 isWLAN :: IFInfo -> Bool
 isWLAN i = B.isJust (U.find (U.regex [U.Multiline] "groups:.*wlan") (detail i))
 
-wlanEnabled :: World -> Bool
-wlanEnabled world =
-    B.isJust (wlanIf world) && F.readDef True (T.unpack (B.fromMaybe "True" (configString "wlan_enabled" world)))
-
 recordWLANSignalStrength :: World -> IO ()
 recordWLANSignalStrength world = do
     let logPrefix = "winot.recordWLANSignalStrength"
-    M.when (wlanEnabled world && B.isJust wif) $ do
+    wif <- atomRead $ wlanIf world
+    M.when (B.isJust wif) $ do
         l <- atomRead $ wlanSignalStrengthLog world
         infos <- atomRead $ interfaceList world
-        M.when (B.isJust (newItem infos)) $ do
-            let !values = lastN (itemsToKeep-1) l <> [B.fromJust (newItem infos)]
+        M.when (B.isJust (newItem wif infos)) $ do
+            let !values = lastN (itemsToKeep-1) l <> [B.fromJust (newItem wif infos)]
             atomWrite
                 (wlanSignalStrengthLog world)
                 values
@@ -337,9 +342,8 @@ recordWLANSignalStrength world = do
     L.debugM logPrefix $ T.unpack $ "wlansig: " `T.append` T.pack (show (lastN 5 log2))
   where
     itemsToKeep = 100
-    wif = wlanIf world
-    d infos = detailOrEmpty (DL.find (\i -> name i == B.fromJust wif) infos)
-    newItem infos = case U.find (U.regex [U.Multiline] "bssid.* (.*)%") (d infos) of
+    d wif infos = detailOrEmpty (DL.find (\i -> name i == B.fromJust wif) infos)
+    newItem wif infos = case U.find (U.regex [U.Multiline] "bssid.* (.*)%") (d wif infos) of
         Just m -> readMaybe $ T.unpack $ B.fromJust $ U.group 1 m :: Maybe Int
         Nothing -> Nothing
 

@@ -10,7 +10,6 @@ import qualified Data.HashMap.Lazy as H
 import qualified Data.Text as T
 import qualified GHC.Int as G
 import qualified GHC.Show (show)
-import qualified Text.Toml as O
 import qualified Text.Toml.Types as O
 import qualified GHC.Generics as N
 import qualified Data.Aeson as A
@@ -18,6 +17,7 @@ import qualified Data.Aeson as A
 default (T.Text)
 
 data World = World { config :: O.Table
+                   , configModified :: G.Int64
                    , checkVPNLock :: S.TMVar ()
                    , checkWLANLock :: S.TMVar ()
                    , checkWWANLock :: S.TMVar ()
@@ -39,14 +39,13 @@ data World = World { config :: O.Table
                    , lastVPNConnect :: S.TVar G.Int64
                    , lastWLANConnect :: S.TVar G.Int64
                    , lastWWANConnect :: S.TVar G.Int64
-                   , vpnIf :: Maybe T.Text
+                   , vpnIf :: S.TVar (Maybe T.Text)
                    , vpnOK :: S.TVar Bool
-                   , wlanIf :: Maybe T.Text
+                   , wlanIf :: S.TVar (Maybe T.Text)
                    , wlanOK :: S.TVar Bool
-                   , wwanIf :: Maybe T.Text
+                   , wwanIf :: S.TVar (Maybe T.Text)
                    , wwanOK :: S.TVar Bool
                    , routeVia :: S.TVar ConnectionMedium
-                   {-, loggerSet :: L.LoggerSet-}
                    }
 
 instance Show World where
@@ -68,7 +67,7 @@ data APInfo = APInfo { ssid :: T.Text
 data ConnectionMedium = None | WWAN | WLAN | VPN deriving (Show, N.Generic)
 instance A.ToJSON ConnectionMedium
 
-initialWorld :: IO (Maybe World)
+initialWorld :: IO World
 initialWorld = do
     rt <- S.atomically $ S.newTVar T.empty
     it <- S.atomically $ S.newTVar []
@@ -95,43 +94,42 @@ initialWorld = do
     rv <- S.atomically $ S.newTVar None
     {-lset <- L.newFileLoggerSet L.defaultBufSize "/var/log/winot2"-}
     is <- S.atomically $ S.newTVar T.empty
+    wwif <- S.atomically $ S.newTVar Nothing
+    wlif <- S.atomically $ S.newTVar Nothing
+    vif <- S.atomically $ S.newTVar Nothing
 
-    con <- readFile "/etc/winot"
-    let conf = O.parseTomlDoc "" con
-
-    M.return $ case conf of
-               Left _ -> Nothing
-               Right c -> Just World { loopTimes = []
-                                     , config            = c
-                                     , checkVPNLock      = l1
-                                     , checkWLANLock     = l10
-                                     , checkWWANLock     = l2
-                                     , checkRouteLock    = l7
-                                     , processListLock   = l4
-                                     , interfaceListLock = l5
-                                     , interfaceStatsLock = l8
-                                     , routeListLock     = l6
-                                     , vpnIf = Nothing
-                                     , vpnOK = vk
-                                     , wlanIf = Nothing
-                                     , wlanOK = wlok
-                                     , wwanIf = Nothing
-                                     , wwanOK = wwok
-                                     , routeList = rt
-                                     , interfaceList = it
-                                     , processList = pt
-                                     , wlanSignalStrengthLog = ssl
-                                     , wlanBandwidthLog = bwl
-                                     , vpnBandwidthLog = vbwl
-                                     , wlanList = wll
-                                     , lastScan = ls
-                                     , lastVPNConnect = lvc
-                                     , lastWWANConnect = lwwc
-                                     , lastWLANConnect = lwlc
-                                     , routeVia = rv
-                                     , interfaceStats = is
-                                     {-, loggerSet = lset-}
-                                     }
+    M.return World { loopTimes = []
+               , config            = O.emptyTable
+               , configModified    = 0
+               , checkVPNLock      = l1
+               , checkWLANLock     = l10
+               , checkWWANLock     = l2
+               , checkRouteLock    = l7
+               , processListLock   = l4
+               , interfaceListLock = l5
+               , interfaceStatsLock = l8
+               , routeListLock     = l6
+               , vpnIf = vif
+               , vpnOK = vk
+               , wlanIf = wlif
+               , wlanOK = wlok
+               , wwanIf = wwif
+               , wwanOK = wwok
+               , routeList = rt
+               , interfaceList = it
+               , processList = pt
+               , wlanSignalStrengthLog = ssl
+               , wlanBandwidthLog = bwl
+               , vpnBandwidthLog = vbwl
+               , wlanList = wll
+               , lastScan = ls
+               , lastVPNConnect = lvc
+               , lastWWANConnect = lwwc
+               , lastWLANConnect = lwlc
+               , routeVia = rv
+               , interfaceStats = is
+               {-, loggerSet = lset-}
+               }
 
 configString :: T.Text -> World -> Maybe T.Text
 configString setting world =

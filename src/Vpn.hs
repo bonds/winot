@@ -21,22 +21,45 @@ default (T.Text, Integer, Double)
 
 checkVPN :: World -> IO ()
 checkVPN world =
-    if vpnEnabled world then do
-        wok <- atomRead $ wlanOK world
-        if wok then do
-            vpnProcStatus <- vpnProcOK world
-            if vpnProcStatus then do
-                vpnConnStatus <- vpnConnOK world
-                if vpnConnStatus then do
-                    L.debugM logPrefix "vpnOK True"
-                    oldOK <- atomRead (vpnOK world)
-                    M.unless oldOK $ do
-                        L.infoM logPrefix "connected to vpn"
-                        atomWrite (vpnOK world) True
-                else connect world
-            else connect world
-        else notOK
-    else notOK
+    if   B.isJust (configString "vpn_server_public_ip" world)
+       && B.isJust (configString "vpn_client_private_ip" world)
+       && B.isJust (configString "vpn_server_private_ip" world)
+       && B.isJust (configString "vpn_private_netmask" world)
+       && B.isJust (configString "ssh_auth_sock_file" world)
+    then do
+        vif <- atomRead $ vpnIf world
+        if B.isJust vif then do
+            wok <- atomRead $ wlanOK world
+            if wok then do
+                vpnProcStatus <- vpnProcOK world
+                if vpnProcStatus then do
+                    vpnConnStatus <- vpnConnOK world
+                    if vpnConnStatus then do
+                        L.debugM logPrefix "vpnOK True"
+                        oldOK <- atomRead (vpnOK world)
+                        M.unless oldOK $ do
+                            L.infoM logPrefix "connected to vpn"
+                            atomWrite (vpnOK world) True
+                    else do
+                        L.debugM logPrefix "vpn choice: noconnection"
+                        notOK
+                        connect world
+                else do
+                    L.debugM logPrefix "vpn choice: noprocess"
+                    notOK
+                    connect world
+            else do
+                L.debugM logPrefix "vpn choice: nowlan"
+                notOK
+        else do
+            L.debugM logPrefix "vpn choice: nointerface"
+            notOK
+            setupVPNIf world
+            connect world
+    else do
+        L.debugM logPrefix "vpn choice: noconfig"
+        notOK
+
   where
     logPrefix = "winot.checkVPN"
     notOK = do
@@ -45,8 +68,6 @@ checkVPN world =
         M.return ()
 
     connect w = do
-        L.debugM logPrefix "vpnOK False"
-        atomWrite (vpnOK w) False
         connectVPN w
         M.return ()
 
@@ -55,48 +76,71 @@ connectVPN world = do
     let logPrefix = "winot.connectVPN"
     let waitXSecondsBeforeDone  = 1
     let waitXSecondsBeforeRetry = 30
+    let cpip = configString "vpn_client_private_ip" world
+    let spip = configString "vpn_server_private_ip" world
+    let nmask = configString "vpn_private_netmask" world
 
     startTime <- K.getTime K.Realtime
     lastConnectAttempt <- atomRead (lastVPNConnect world)
 
     M.when ((K.sec startTime - lastConnectAttempt) > waitXSecondsBeforeRetry) $ do
-        wlg <- wlanGateway (wlanIf world)
+        wif <- atomRead $ wlanIf world
+        wlg <- wlanGateway wif
         sas <- sshAuthSock world
         let ip = configString "vpn_server_public_ip" world
-        let vif = vpnIf world
-        M.when (B.isJust wlg && B.isJust ip && B.isJust (vpnCommand world) && B.isJust sas && B.isJust vif) $ do
+        vif <- atomRead $ vpnIf world
+        command <- vpnCommand world
+        M.when ( B.isJust wlg
+               && B.isJust ip
+               && B.isJust command
+               && B.isJust sas
+               && B.isJust vif
+               && B.isJust cpip
+               && B.isJust spip
+               && B.isJust nmask
+               ) $ do
             L.infoM logPrefix "connecting to the vpn"
-            L.debugM logPrefix $ T.unpack $ "vpn comand: " `T.append` B.fromJust (vpnCommand world)
+            L.debugM logPrefix $ T.unpack $ "vpn comand: " `T.append` B.fromJust command
+            run $ T.concat [ "ifconfig "
+                           , B.fromJust vif
+                           , " create "
+                           , B.fromJust cpip
+                           , " "
+                           , B.fromJust spip
+                           , " netmask "
+                           , B.fromJust nmask
+                           , " up"
+                           ]
             run $ "route delete " `T.append` B.fromJust ip
             run $ "route add " `T.append` B.fromJust ip `T.append` " " `T.append` B.fromJust wlg
             run $ "ifconfig " `T.append` B.fromJust vif `T.append` " down"
             run $ "ifconfig " `T.append` B.fromJust vif `T.append` " up"
-            run $ "pkill -5 -f \"" `T.append` B.fromJust (vpnCommand world) `T.append` "\""
+            run $ "pkill -5 -f \"" `T.append` B.fromJust command `T.append` "\""
             connectTime <- K.getTime K.Realtime
             atomWrite (lastVPNConnect world) (K.sec connectTime)
             _ <- C.forkIO $ run $ T.concat [ "SSH_AUTH_SOCK="
                                            , B.fromJust sas
                                            , " "
-                                           , B.fromJust (vpnCommand world)
+                                           , B.fromJust command
                                            ]
             D.delay $ waitXSecondsBeforeDone * (10::Integer)^(6::Integer)
 
 -- TODO: vpnCommand could change between calls, i.e. between start and cleanup
 -- that would lead to the wrong kill commands to be run, need to store the command used
 -- so we can reuse it at cleanup time
-vpnCommand :: World -> Maybe T.Text
-vpnCommand world =
-    if B.isJust ip && B.isJust vif then
-        Just (T.concat [ "ssh -N -w "
-                       , T.singleton (T.last $ B.fromJust vif)
-                       , ":any "
-                       , B.fromJust ip
-                       ])
-    else
-        Nothing
+vpnCommand :: World -> IO (Maybe T.Text)
+vpnCommand world = do
+    vif <- atomRead $ vpnIf world
+    return $ if B.isJust ip && B.isJust vif then
+            Just (T.concat [ "ssh -N -w "
+                           , T.singleton (T.last $ B.fromJust vif)
+                           , ":any "
+                           , B.fromJust ip
+                           ])
+        else
+            Nothing
   where
     ip = configString "vpn_server_public_ip" world
-    vif = vpnIf world
 
 sshAuthSock :: World -> IO (Maybe T.Text)
 sshAuthSock world =
@@ -113,6 +157,7 @@ sshAuthSock world =
 vpnProcOK :: World -> IO Bool
 vpnProcOK world = do
     let logPrefix = "winot.vpnProcOK"
+    vcomm <- vpnCommand world
     if B.isJust vcomm then do
         procs <- atomRead $ processList world
         if B.fromJust vcomm `T.isInfixOf` procs then do
@@ -124,8 +169,6 @@ vpnProcOK world = do
     else do
         L.debugM logPrefix "command not configured"
         M.return False
-  where
-    vcomm = vpnCommand world
 
 vpnConnOK :: World -> IO Bool
 vpnConnOK world = do
@@ -157,23 +200,15 @@ vpnConnOK world = do
                     L.debugM logPrefix "ping bad"
                     return False
 
-chooseVPNIf :: World -> IO (Maybe T.Text)
-chooseVPNIf world = do
-    let logPrefix = "winot.chooseVPNIf"
+setupVPNIf :: World -> IO ()
+setupVPNIf world = do
+    let logPrefix = "winot.setupVPNIf"
     ifs <- atomRead (interfaceList world)
     let vif = B.fromMaybe (firstIfAvailable "tun" ifs) configIf
     L.debugM logPrefix $ T.unpack $ "chose " `T.append` vif
-    M.return $ Just vif
+    atomWrite (vpnIf world) (Just vif)
   where
     configIf = configString "vpn_if" world
-
-vpnEnabled :: World -> Bool
-vpnEnabled world = B.isJust (vpnIf world)
-                && B.isJust (configString "vpn_server_public_ip" world)
-                && B.isJust (configString "vpn_client_private_ip" world)
-                && B.isJust (configString "vpn_server_private_ip" world)
-                && B.isJust (configString "vpn_private_netmask" world)
-                && B.isJust (configString "ssh_auth_sock_file" world)
 
 vpnGateway :: T.Text -> T.Text -> Maybe T.Text
 vpnGateway rl ip = case U.find (U.regex [U.Multiline] (

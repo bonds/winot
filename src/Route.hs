@@ -23,7 +23,8 @@ checkRoute world = do
     wlanok <- atomRead $ wlanOK world
     if wlanok then do
         L.debugM logPrefix "route choice: wlanok"
-        wlg <- wlanGateway (wlanIf world)
+        wlif <- atomRead $ wlanIf world
+        wlg <- wlanGateway wlif
         vpnok <- atomRead $ vpnOK world
         let ip = configString "vpn_server_private_ip" world
 
@@ -59,7 +60,7 @@ checkRoute world = do
         rl <- atomRead (routeList w)
         if wwanok then do
             L.debugM logPrefix "route choice: wwanok"
-            let wif = wwanIf w
+            wif <- atomRead $ wwanIf w
             if B.isJust wif then do
                 L.debugM logPrefix "route choice: wifok"
                 let wg = wwanGateway rl (B.fromJust wif)

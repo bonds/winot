@@ -7,9 +7,7 @@ module Status where
 import Protolude
 import World
 import Wlan
-import Wwan
 import Util
-import Vpn
 import qualified Control.Monad as M
 import qualified Data.Text as T
 import qualified Data.Aeson as A
@@ -76,19 +74,20 @@ outputStatus world = do
     vok  <- atomRead $ vpnOK world
     lscan <- atomRead $ lastScan world
     using <- atomRead $ routeVia world
+    wlif <- atomRead $ wlanIf world
     let status = Status { csUsing    = using
-                        , csWwan     = wwan world wwok
-                        , csWlan     = wlan world wlok
-                        , csWlanSSID = case wlanIf world of
-                                           Just wlif -> B.fromMaybe "" $ currentSSID wlif ifList
+                        , csWwan     = wwan wwok
+                        , csWlan     = wlan wlok
+                        , csWlanSSID = case wlif of
+                                           Just wlif' -> B.fromMaybe "" $ currentSSID wlif' ifList
                                            Nothing   -> ""
-                        , csWlanBSSID = case wlanIf world of
-                                            Just wlif -> B.fromMaybe "" $ currentBSSID wlif ifList
+                        , csWlanBSSID = case wlif of
+                                            Just wlif' -> B.fromMaybe "" $ currentBSSID wlif' ifList
                                             Nothing   -> ""
                         , csWlanStrength = case lastMay strengths of
                                                Just s -> T.pack $ show s
                                                Nothing -> ""
-                        , csVpn      = vpn world wlok vok
+                        , csVpn      = vpn wlok vok
                         , csUpdated  = K.sec time
                         , csScanned  = lscan
                         , csNetworks = networks
@@ -96,27 +95,18 @@ outputStatus world = do
     BS.writeFile "/var/winot/status" (A.encodePretty status)
     M.return ()
   where
-    wwan w wwok = if wwanEnabled w then
-                          if wwok then
-                              Connected
-                          else
-                              Connecting
-                      else
-                          Disabled
-    wlan w wlok = if wlanEnabled w then
-                         if wlok then
-                             Connected
-                         else
-                             Connecting
-                      else
-                         Disabled
-    vpn w wlok vok = if vpnEnabled w then
-                             if wlok then
-                                 if vok then
-                                     Connected
-                                 else
-                                     Connecting
-                             else
-                                 Waiting
-                        else
-                             Disabled
+    wwan wwok = if wwok then
+                    Connected
+                else
+                    Connecting
+    wlan wlok = if wlok then
+                    Connected
+                else
+                    Connecting
+    vpn wlok vok = if wlok then
+                       if vok then
+                           Connected
+                       else
+                           Connecting
+                   else
+                       Waiting

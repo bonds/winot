@@ -19,15 +19,18 @@ import qualified Control.Monad as M
 import qualified Control.Monad.Loops as M
 import qualified Data.Maybe as B
 import qualified Data.Text as T
+import qualified Foreign.C.Types as F
 import qualified System.Clock as K
 import qualified System.Exit as E
 import qualified System.Log.Formatter as LF
 import qualified System.Log.Handler as LH
 import qualified System.Log.Handler.Simple as LH
 import qualified System.Log.Logger as L
+import qualified System.Posix.Files as P
 import qualified System.Posix.Process as P
 import qualified System.Posix.Signals as P
 import qualified System.Directory as SD
+import qualified Text.Toml as O
 
 default (Text, Integer, Double)
 
@@ -43,9 +46,8 @@ loop = do
 
     -- load configuration and initial setup
 
-    w <- initialWorld
-    M.when (B.isNothing w) (E.die "could not parse config, probably")
-    let world = B.fromJust w
+    iw <- initialWorld
+    world <- getConfiguration iw
     SD.createDirectoryIfMissing False "/var/winot"
 
     -- log to a file
@@ -63,66 +65,17 @@ loop = do
     L.updateGlobalLogger "winot" (L.addHandler nl)
     L.infoM logPrefix "starting up"
 
-    -- more setup
-
-    updateInterfaceList world -- get initial interface list for use in choosing wwanif
-    wwif <- chooseWWANIf world
-    wlif <- chooseWLANIf world
-    vif <- chooseVPNIf world
-    let world' = world { wwanIf = wwif
-                       , vpnIf = vif
-                       , wlanIf = wlif
-                       }
-
-    L.debugM logPrefix $ T.unpack $ T.concat ["wwanIf is ", T.pack (show wwif)]
-    if wwanEnabled world' then do
-        L.debugM logPrefix "wwan enabled"
-        M.when (B.isJust wwif) $ do
-            run "pkill -f pppd"
-            run $ "ifconfig " `T.append` B.fromJust wwif `T.append` " create up"
-            M.return ()
-    else
-        L.infoM logPrefix "wwan disabled"
-
-    if wlanEnabled world' then do
-        L.debugM logPrefix "wlan enabled"
-        M.return ()
-    else
-        L.infoM logPrefix "wlan disabled"
-
-    if vpnEnabled world' then do
-        L.debugM logPrefix "vpn enabled"
-        let cpip = configString "vpn_client_private_ip" world'
-        let spip = configString "vpn_server_private_ip" world'
-        let nmask = configString "vpn_private_netmask" world'
-        if B.isJust cpip && B.isJust spip && B.isJust nmask && B.isJust vif then do
-            run $ T.concat [ "ifconfig "
-                           , B.fromJust vif
-                           , " create "
-                           , B.fromJust cpip
-                           , " "
-                           , B.fromJust spip
-                           , " netmask "
-                           , B.fromJust nmask
-                           , " up"
-                           ]
-            M.return ()
-        else
-            L.errorM logPrefix "vpn missing config, but enabled?!"
-    else
-        L.infoM logPrefix "vpn disabled"
-
     -- handle quit signals
 
     tid <- C.myThreadId
-    _ <- P.installHandler P.sigINT  (P.Catch (cleanUp world' >> C.throwTo tid E.ExitSuccess)) Nothing
-    _ <- P.installHandler P.sigTERM (P.Catch (cleanUp world' >> C.throwTo tid E.ExitSuccess)) Nothing
-    _ <- P.installHandler P.sigQUIT (P.Catch (cleanUp world' >> C.throwTo tid E.ExitSuccess)) Nothing
-    _ <- P.installHandler P.sigHUP  (P.Catch (cleanUp world' >> C.throwTo tid E.ExitSuccess)) Nothing
+    _ <- P.installHandler P.sigINT  (P.Catch (cleanUp world >> C.throwTo tid E.ExitSuccess)) Nothing
+    _ <- P.installHandler P.sigTERM (P.Catch (cleanUp world >> C.throwTo tid E.ExitSuccess)) Nothing
+    _ <- P.installHandler P.sigQUIT (P.Catch (cleanUp world >> C.throwTo tid E.ExitSuccess)) Nothing
+    _ <- P.installHandler P.sigHUP  (P.Catch (cleanUp world >> C.throwTo tid E.ExitSuccess)) Nothing
 
     -- start the main loop
 
-    M.iterateM_ mainLoop world'
+    M.iterateM_ mainLoop world
 
 mainLoop :: World -> IO World
 mainLoop world = do
@@ -130,16 +83,18 @@ mainLoop world = do
     let secondsBetweenLoops = 1
     L.debugM logPrefix "start loop"
 
-    world' <- recordLoopTimes world
+    world' <- recordLoopTimes world >>= getConfiguration
     L.debugM logPrefix $ T.unpack $ "lastLoop: " `T.append` T.pack (show (headMay (loopTimes world')))
     L.debugM logPrefix $ T.unpack $ "thisLoop: " `T.append` T.pack (show (lastMay (loopTimes world')))
 
     _ <- C.forkIO $ recordWLANSignalStrength world'
-    M.when (wlanEnabled world') $ do
-        _ <- C.forkIO $ recordBandwidth world' (B.fromJust $ wlanIf world') (wlanBandwidthLog world')
+    wlif <- atomRead $ wlanIf world'
+    M.when (B.isJust wlif) $ do
+        _ <- C.forkIO $ recordBandwidth world' (B.fromJust wlif) (wlanBandwidthLog world')
         M.return ()
-    M.when (vpnEnabled world') $ do
-        _ <- C.forkIO $ recordBandwidth world' (B.fromJust $ vpnIf world') (vpnBandwidthLog world')
+    vif <- atomRead $ vpnIf world'
+    M.when (B.isJust vif) $ do
+        _ <- C.forkIO $ recordBandwidth world' (B.fromJust vif) (vpnBandwidthLog world')
         M.return ()
 
     -- skip most of the work if we're in our steady state of being connected to VPN
@@ -175,6 +130,7 @@ cleanUp world = do
 
     -- kill related processes that are not under our direct control
     run "pkill -f pppd"
+    vcomm <- vpnCommand world
     M.when (B.isJust vcomm) $ do
         L.debugM logPrefix $ T.unpack $ "this causes a crash: pkill -f " `T.append` B.fromJust vcomm
         {-system $ "pkill -f " `T.append` B.fromJust vcomm --crash!-}
@@ -183,20 +139,18 @@ cleanUp world = do
     -- clear out the route and interface config changes we made
     _ <- D.delay $ 1 * (10 :: Integer) ^ (6 :: Integer) -- wait for pppd to exit and free up wwanif
     run "route -qn flush"
+    vif <- atomRead $ vpnIf world
     M.when (B.isJust vif) $ do
         run $ "ifconfig " `T.append` B.fromJust vif `T.append` " destroy"
         M.return ()
+    wlif <- atomRead $ wlanIf world
     M.when (B.isJust wlif) $ do
         run $ "ifconfig " `T.append` B.fromJust wlif `T.append` " -nwid -wpakey -inet down"
         M.return ()
+    wwif <- atomRead $ wwanIf world
     M.when (B.isJust wwif) $ do
         run $ "ifconfig " `T.append` B.fromJust wwif `T.append` " destroy"
         M.return ()
-  where
-    vcomm = vpnCommand world
-    vif = vpnIf world
-    wlif = wlanIf world
-    wwif = wwanIf world
 
 updateProcessList :: World -> IO ()
 updateProcessList world = do
@@ -217,3 +171,21 @@ recordLoopTimes world = do
     let !newLoopTimes = reverse (take (numOfTimestampsToKeep-1) $ reverse (loopTimes world)) <> [K.sec time]
     M.return world { loopTimes = newLoopTimes }
 
+getConfiguration :: World -> IO World
+getConfiguration world = do
+    let logPrefx = "winot.getConfiguration"
+    con <- readFile "/etc/winot"
+    fs <- P.getFileStatus "/etc/winot"
+    let mt = case P.modificationTime fs of
+                F.CTime ct -> ct
+    if mt > configModified world then do
+        L.debugM logPrefx "reading configuration"
+        let conf = O.parseTomlDoc "" con
+        case conf of
+            Left _ -> E.die "could not parse config, probably"
+            Right c ->
+                return world { config = c
+                        , configModified = mt
+                        }
+    else
+        return world
