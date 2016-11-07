@@ -95,18 +95,16 @@ connectWLANConn world = do
     startTime <- K.getTime K.Realtime
     lastConnectAttempt <- atomRead (lastWLANConnect world)
 
-    M.when ((K.sec startTime - lastConnectAttempt) > waitXSecondsBeforeRetry) $ do
+    if (K.sec startTime - lastConnectAttempt) > waitXSecondsBeforeRetry then do
+        L.debugM logPrefix "starting"
         wif <- atomRead $ wlanIf world
-        M.when (B.isJust wif) $ do
-            L.debugM logPrefix "connecting to the wlan"
+        if B.isJust wif then do
             wlanScan world
             aps <- atomRead $ wlanList world
             M.when (null aps) $ L.debugM logPrefix "no networks found"
             let fs = familiarSSIDs world
             let familiarAndInRange = filter (\x -> ssid x `elem` fs) aps
-            if null familiarAndInRange then
-                L.debugM logPrefix "no familiar networks found"
-            else do
+            if not (null familiarAndInRange) then do
                 let s = B.maybe "" ssid $ lastMay $ DL.sortOn strength familiarAndInRange
                 let a = B.fromJust $ lookupSSID s world
                 let nwid = case a ! T.pack "ssid" of
@@ -119,8 +117,8 @@ connectWLANConn world = do
                                        O.VString vs2 -> Just vs2
                                        _           -> Nothing
                                    _         -> Nothing
-                M.when (B.isJust nwid && B.isJust password) $ do
-                    L.infoM logPrefix "connecting to the wlan"
+                if B.isJust nwid && B.isJust password then do
+                    L.infoM logPrefix $ T.unpack $ T.concat ["connecting to ", B.fromJust nwid]
                     connectTime <- K.getTime K.Realtime
                     atomWrite (lastWLANConnect world) (K.sec connectTime)
                     run $ T.concat [ "ifconfig "
@@ -134,6 +132,10 @@ connectWLANConn world = do
                     dhclient $ B.fromJust wif
                     D.delay $ waitXSecondsBeforeDone * (10::Integer)^(6::Integer)
                     M.return ()
+                else L.debugM logPrefix "missing password"
+            else L.debugM logPrefix "no familiar networks found"
+        else L.debugM logPrefix "no wlan interface, so why is this being called?"
+    else L.debugM logPrefix "skipping because last attempt was too recent"
 
 wlanSignalOK :: World -> IO Bool
 wlanSignalOK world = do
