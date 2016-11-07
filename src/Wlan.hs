@@ -123,9 +123,9 @@ connectWLANConn world = do
                     atomWrite (lastWLANConnect world) (K.sec connectTime)
                     run $ T.concat [ "ifconfig "
                                    , B.fromJust wif
-                                   , " nwid "
+                                   , " nwid \""
                                    , B.fromJust nwid
-                                   , " wpakey "
+                                   , "\" wpakey "
                                    , B.fromJust password
                                    , " up"
                                    ]
