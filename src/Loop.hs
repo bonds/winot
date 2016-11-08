@@ -34,8 +34,8 @@ import qualified Text.Toml as O
 
 default (Text, Integer, Double)
 
-loop :: IO ()
-loop = do
+setup :: IO World
+setup = do
     let logPrefix = "winot.main"
 
     P.nice 20 -- run at low priority
@@ -73,13 +73,16 @@ loop = do
     _ <- P.installHandler P.sigQUIT (P.Catch (cleanUp world >> C.throwTo tid E.ExitSuccess)) Nothing
     _ <- P.installHandler P.sigHUP  (P.Catch (cleanUp world >> C.throwTo tid E.ExitSuccess)) Nothing
 
-    -- start the main loop
+    return world
 
-    M.iterateM_ mainLoop world
+loop :: IO ()
+loop = do
+    world <- setup
+    M.iterateM_ iteration world
 
-mainLoop :: World -> IO World
-mainLoop world = do
-    let logPrefix = "winot.mainLoop"
+iteration :: World -> IO World
+iteration world = do
+    let logPrefix = "winot.iteration"
     let secondsBetweenLoops = 1
     L.debugM logPrefix "start loop"
 

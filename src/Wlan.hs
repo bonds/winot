@@ -36,7 +36,7 @@ checkWLAN world = do
         if B.isJust wif then do
             checkWLANScanRequest world
             ifList <- atomRead $ interfaceList world
-            if wlanConnOK (B.fromJust wif) ifList (familiarSSIDs world):: Bool then
+            if wlanConnOK (B.fromJust wif) ifList (familiarSSIDs world) :: Bool then
                 if wlanIPOK (B.fromJust wif) ifList then do
                     wsok <- wlanSignalOK world
                     if wsok then do
@@ -221,7 +221,7 @@ apLineToInfo' line =
         c  <- chanP
         b  <- bssidP
         st <- strP
-        sp <- speP
+        sp <- valueThenSpace
         o <-  optP
 
         return APInfo  { ssid       = n
@@ -262,9 +262,7 @@ apLineToInfo' line =
     bssidP = do
         _ <- Tr.text "bssid"
         _ <- Tr.space
-        result <- Tr.some (Tr.notChar ' ')
-        _ <- Tr.space
-        return $ T.pack result
+        valueThenSpace
 
     strP :: Tr.Parser T.Text
     strP = do
@@ -273,8 +271,8 @@ apLineToInfo' line =
         _ <- Tr.space
         return $ show result
 
-    speP :: Tr.Parser T.Text
-    speP = do
+    valueThenSpace :: Tr.Parser T.Text
+    valueThenSpace = do
         result <- Tr.some (Tr.notChar ' ')
         _ <- Tr.space
         return $ T.pack result
@@ -303,7 +301,7 @@ wlanIfconfig :: T.Text -> [IFInfo] -> T.Text
 wlanIfconfig wlif infos = detailOrEmpty (DL.find (\i -> name i == wlif) infos)
 
 currentSSID :: T.Text -> [IFInfo] -> Maybe T.Text
-currentSSID wlif infos = case U.find (U.regex [U.Multiline] "nwid (.*) chan") (wlanIfconfig wlif infos) of
+currentSSID wlif infos = case U.find (U.regex [U.Multiline] "nwid \"?([^\"]*)\"? chan") (wlanIfconfig wlif infos) of
                            Just m -> U.group 1 m
                            _      -> Nothing
 
