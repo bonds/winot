@@ -4,7 +4,8 @@
 module Vpn where
 
 import Protolude
-import Util
+import Util.Misc
+import Util.Run
 import Wlan
 import World
 import qualified Control.Concurrent as C

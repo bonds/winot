@@ -1,194 +1,162 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell   #-}
+{-# LANGUAGE BangPatterns #-}
 
 module Loop where
 
-import Protolude
-import Control.Monad ((>>))
-import Route
-import Status
-import Util
-import Vpn
-import Wlan
+import Protolude hiding (handle)
+-- import Control.Monad ((>>))
+import Util.Run
+import Util.Log
+import Status.Interface
+import Status.Process
+import Status.Route
 import World
-import Wwan
 import qualified Control.Concurrent as C
 import qualified Control.Concurrent.Thread.Delay as D
 import qualified Control.Monad as M
 import qualified Control.Monad.Loops as M
-import qualified Data.Maybe as B
 import qualified Data.Text as T
-import qualified Foreign.C.Types as F
-import qualified System.Clock as K
 import qualified System.Exit as E
-import qualified System.Log.Formatter as LF
-import qualified System.Log.Handler as LH
-import qualified System.Log.Handler.Simple as LH
-import qualified System.Log.Logger as L
-import qualified System.Posix.Files as P
 import qualified System.Posix.Process as P
 import qualified System.Posix.Signals as P
-import qualified System.Directory as SD
-import qualified Text.Toml as O
+import qualified Control.Monad.Logger as ML
+import qualified Data.UnixTime as Time
+import Data.UnixTime (UnixTime)
 
 default (Text, Integer, Double)
 
-setup :: IO World
-setup = do
-    let logPrefix = "winot.main"
+loop :: ML.LoggingT IO ()
+loop = do
+    startup
+    M.iterateM_ iteration initialWorld
 
-    P.nice 20 -- run at low priority
-    uid <- runRead "id -u"
-    M.when (T.strip uid /= "0") $ do
+startup :: ML.LoggingT IO ()
+startup = do
+
+    -- quit if not running as root
+    uid <- runRead LRStatus "id -u"
+    liftIO $ M.when (T.strip uid /= "0") $ do
         print ("error: this script must be run by root" :: Text)
         E.exitFailure
 
-    -- load configuration and initial setup
-
-    iw <- initialWorld
-    world <- getConfiguration iw
-    SD.createDirectoryIfMissing False "/var/winot"
-
-    -- log to a file
-
-    let cll = configString "log_level" world
-    let defaultLogLevel =
-            if cll == Just "debug" then L.DEBUG
-            else L.INFO
-
-    L.updateGlobalLogger L.rootLoggerName L.removeHandler -- remove default handler (stderr)
-    L.updateGlobalLogger "winot" (L.setLevel defaultLogLevel)
-    nl <- LH.fileHandler "/var/log/winot" L.DEBUG >>=
-         \lh -> M.return $
-            LH.setFormatter lh (LF.simpleLogFormatter "[$time : $loggername : $prio] $msg")
-    L.updateGlobalLogger "winot" (L.addHandler nl)
-    L.infoM logPrefix "starting up"
+    -- run at a low priority
+    liftIO $ P.nice 20
 
     -- handle quit signals
+    tid <- liftIO C.myThreadId
+    liftIO $ mapM_ (handle tid) [P.sigINT, P.sigTERM, P.sigQUIT, P.sigHUP]
 
-    tid <- C.myThreadId
-    _ <- P.installHandler P.sigINT  (P.Catch (cleanUp world >> C.throwTo tid E.ExitSuccess)) Nothing
-    _ <- P.installHandler P.sigTERM (P.Catch (cleanUp world >> C.throwTo tid E.ExitSuccess)) Nothing
-    _ <- P.installHandler P.sigQUIT (P.Catch (cleanUp world >> C.throwTo tid E.ExitSuccess)) Nothing
-    _ <- P.installHandler P.sigHUP  (P.Catch (cleanUp world >> C.throwTo tid E.ExitSuccess)) Nothing
+    return ()
 
-    return world
+handle :: ThreadId -> P.Signal -> IO P.Handler
+handle tid sig =
+    P.installHandler sig
+        (P.Catch $ ML.runStdoutLoggingT $ cleanUp tid)
+        Nothing
 
-loop :: IO ()
-loop = do
-    world <- setup
-    M.iterateM_ iteration world
+iteration :: World -> ML.LoggingT IO World
+iteration oldWorld = do
+    newTime             <- liftIO Time.getUnixTime
+    newProcesses        <- processes
+    newRoutes           <- routes
+    newInterfaces       <- interfaces
+    newInterfaceStats   <- interfaceStats
 
-iteration :: World -> IO World
-iteration world = do
-    let logPrefix = "winot.iteration"
-    let secondsBetweenLoops = 1
-    L.debugM logPrefix "start loop"
+    let newWorld = oldWorld
+            { woLoopTimes   = mergeLoopTimes newTime $ woLoopTimes oldWorld
+            , woInterfaces  = mergeInterfaceInfo
+                newInterfaces
+                (woInterfaces oldWorld)
+                newInterfaceStats
+            , woProcesses   = newProcesses
+            , woRoutes      = newRoutes
+            }
+    $(myLogTH) LLDevInfo [Tag "world"] $ Just $ show newWorld
+    -- (re)load config
+    -- record signal strengths
+    -- record bandwidth
+    -- get interface list
+    -- get interface stats
+    -- get process list
+    -- get routes
+    -- choose route
+    -- check plan
+    -- check ulan
+    -- check wlan
+    -- check wwan
 
-    world' <- recordLoopTimes world >>= getConfiguration
-    L.debugM logPrefix $ T.unpack $ "lastLoop: " `T.append` T.pack (show (headMay (loopTimes world')))
-    L.debugM logPrefix $ T.unpack $ "thisLoop: " `T.append` T.pack (show (lastMay (loopTimes world')))
+    liftIO $ delayNeeded >>= D.delay
+    return newWorld
 
-    _ <- C.forkIO $ recordWLANSignalStrength world'
-    wlif <- atomRead $ wlanIf world'
-    M.when (B.isJust wlif) $ do
-        _ <- C.forkIO $ recordBandwidth world' (B.fromJust wlif) (wlanBandwidthLog world')
-        M.return ()
-    vif <- atomRead $ vpnIf world'
-    M.when (B.isJust vif) $ do
-        _ <- C.forkIO $ recordBandwidth world' (B.fromJust vif) (vpnBandwidthLog world')
-        M.return ()
+  where
 
-    -- skip most of the work if we're in our steady state of being connected to VPN
-    -- dr <- runRead "route -n get -inet default"
-    -- vpnok <- maybe
-    --     (M.return False)
-    --     (\ip -> if ip `T.isInfixOf` dr then vpnConnOK world' else M.return False)
-    --     (configString "vpn_server_private_ip" world)
-    let vpnok = False
+    secondsBetweenLoops = 5 :: Integer
 
-    tryLockFork "interfaceListLock" (interfaceListLock world') (updateInterfaceList world')
-    tryLockFork "interfaceStatsLock" (interfaceStatsLock world') (updateInterfaceStats world')
-    tryLockFork "checkWLANLock" (checkWLANLock world') (checkWLANScanRequest world')
-    M.unless vpnok $ do
-        tryLockFork "processListLock" (processListLock world') (updateProcessList world')
-        tryLockFork "checkWWANLock" (checkWWANLock world') (checkWWAN world')
-        tryLockFork "checkWLANLock" (checkWLANLock world') (checkWLAN world')
-        tryLockFork "checkVPNLock" (checkVPNLock world') (checkVPN world')
-        tryLockFork "checkRoute" (checkRouteLock world') (checkRoute world')
-        M.return ()
+    delayNeeded :: IO Integer
+    delayNeeded = case lastMay $ woLoopTimes oldWorld of
+        Nothing -> return 0
+        Just oldTime -> do
+            currentTime <- liftIO Time.getUnixTime
+            let loopLength = currentTime `Time.diffUnixTime` oldTime
+            let sbl = Time.secondsToUnixDiffTime secondsBetweenLoops
+            let gap = sbl - loopLength
+            return $ udtToMicroseconds
+              $ if sbl > gap then sbl else gap
 
-    _ <- outputStatus world'
-    _ <- D.delay $ secondsBetweenLoops * (10 :: Integer) ^ (6 :: Integer)
-    M.return world'
+    udtToMicroseconds :: Time.UnixDiffTime -> Integer
+    udtToMicroseconds t =
+        (round ((
+              fromRational
+            . toRational
+            $ Time.udtSeconds t) :: Double) :: Integer)
+        * (10::Integer)^(6::Integer)
+        + toInteger (Time.udtMicroSeconds t)
 
-cleanUp :: World -> IO ()
-cleanUp world = do
-    let logPrefix = "winot.cleanUp"
-    L.infoM logPrefix "exiting"
+cleanUp :: ThreadId -> ML.LoggingT IO ()
+cleanUp tid = do
+    $(myLogTH) LLDevInfo [Reason LRAction, Tag "cleanup"] Nothing
+    _ <- liftIO $ C.throwTo tid E.ExitSuccess
+    return ()
 
-    -- TODO: kill all the running threads, so we aren't fighting with ourself
+mergeLoopTimes :: UnixTime -> [UnixTime] -> [UnixTime]
+mergeLoopTimes nt ots = take 2 $ nt : ots
 
+mergeInterfaceInfo :: [Interface] -> [Interface] -> [IfStats] -> [Interface]
+mergeInterfaceInfo [] _ _ = []
+mergeInterfaceInfo (x:xs) oldInterfaces newStats =
+    mergeII x oldInterfaces newStats : mergeInterfaceInfo xs oldInterfaces newStats
+  where
+    -- keeping history even if bssid or network changed...hopefully that's good enough
+    mergeII :: Interface -> [Interface] -> [IfStats] -> Interface
+    mergeII i oi ns = x
+        { ifBandwidthHistory  =
+            take 100 $ makeNewBandwidthHistory i ns
+                     ++ findOldBandwidthHistory i oi
+        , ifWirelessDetail    =
+            case ifWirelessDetail i of
+                Just ifwd -> case find (\old -> interface old == interface i) oi of
+                    Just iold -> case ifWirelessDetail iold of
+                        Just od -> Just ifwd
+                            { ifStrengthHistory = take 100 $ ifStrengthHistory ifwd ++ ifStrengthHistory od }
+                        Nothing -> Just ifwd
+                    Nothing -> Just ifwd
+                Nothing -> Nothing
+        }
 
-    -- kill related processes that are not under our direct control
-    run "pkill -f pppd"
-    vcomm <- vpnCommand world
-    M.when (B.isJust vcomm) $ do
-        L.debugM logPrefix $ T.unpack $ "this causes a crash: pkill -f " `T.append` B.fromJust vcomm
-        {-system $ "pkill -f " `T.append` B.fromJust vcomm --crash!-}
-        M.return ()
+findOldBandwidthHistory :: Interface -> [Interface] -> [IfBandwidth]
+findOldBandwidthHistory i oi =
+    case find (\old -> interface old == interface i) oi of
+        Just a -> ifBandwidthHistory a
+        Nothing -> []
 
-    -- clear out the route and interface config changes we made
-    _ <- D.delay $ 1 * (10 :: Integer) ^ (6 :: Integer) -- wait for pppd to exit and free up wwanif
-    run "route -qn flush"
-    vif <- atomRead $ vpnIf world
-    M.when (B.isJust vif) $ do
-        run $ "ifconfig " `T.append` B.fromJust vif `T.append` " destroy"
-        M.return ()
-    wlif <- atomRead $ wlanIf world
-    M.when (B.isJust wlif) $ do
-        run $ "ifconfig " `T.append` B.fromJust wlif `T.append` " -nwid -wpakey -inet down"
-        M.return ()
-    wwif <- atomRead $ wwanIf world
-    M.when (B.isJust wwif) $ do
-        run $ "ifconfig " `T.append` B.fromJust wwif `T.append` " destroy"
-        M.return ()
+makeNewBandwidthHistory :: Interface -> [IfStats] -> [IfBandwidth]
+makeNewBandwidthHistory i ns =
+    case find (\stats -> iftInterface stats == interface i) ns of
+        Just a -> [IfBandwidth
+            { ifbWhen     = iftWhen a
+            , ifbBytes    = iftInputBytes a + iftOutputBytes a
+            }]
+        Nothing -> []
 
-updateProcessList :: World -> IO ()
-updateProcessList world = do
-    lst <- runRead "ps axw"
-    atomWrite (processList world) lst
-    M.return ()
-
-updateInterfaceList :: World -> IO ()
-updateInterfaceList world = do
-    lst <- runRead "ifconfig"
-    atomWrite (interfaceList world) (parseInterfaceList lst)
-    M.return ()
-
-recordLoopTimes :: World -> IO World
-recordLoopTimes world = do
-    let numOfTimestampsToKeep = 2
-    time <- K.getTime K.Realtime
-    let !newLoopTimes = reverse (take (numOfTimestampsToKeep-1) $ reverse (loopTimes world)) <> [K.sec time]
-    M.return world { loopTimes = newLoopTimes }
-
-getConfiguration :: World -> IO World
-getConfiguration world = do
-    let logPrefx = "winot.getConfiguration"
-    con <- readFile "/etc/winot"
-    fs <- P.getFileStatus "/etc/winot"
-    let mt = case P.modificationTime fs of
-                F.CTime ct -> ct
-    if mt > configModified world then do
-        L.debugM logPrefx "reading configuration"
-        let conf = O.parseTomlDoc "" con
-        case conf of
-            Left _ -> E.die "could not parse config, probably"
-            Right c ->
-                return world { config = c
-                        , configModified = mt
-                        }
-    else
-        return world

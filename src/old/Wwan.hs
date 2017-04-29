@@ -4,7 +4,8 @@
 module Wwan where
 
 import Protolude
-import Util
+import Util.Misc
+import Util.Run
 import World
 import qualified Control.Concurrent.Thread.Delay as D
 import qualified Control.Monad as M

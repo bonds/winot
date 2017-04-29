@@ -1,3 +1,40 @@
+# logging levels
+
+maybe should use tags or streams instead of levels?
+
+category
+
+decision: user relevant actions taken, i.e. switched to wwan
+action.run: action commands run + exit codes, i.e. [255] route change
+action.stdout: action commands stdout + stderr, i.e.  [255] route change blah [O] blah blah
+action.parse_error: action parser errors
+info.command: info gathering commands run + exit codes, i.e. ps
+info.stdout: info gathering commands stdout+stderr
+info.stderr: info gathering commands stdout+stderr
+info.exit_code: info gathering commands stdout+stderr
+info.parse_error parser errors
+source: you are here
+
+level: how important is it
+date: when it happened
+thread id: what thread was it run on
+entry id: these entries should by read together
+source: where in the code does it come from
+category: what sort of data was logged
+message: what happened
+
+level | date | thread id | entry id | source | category | message
+[Debug] | 20170410 04:05:06.43212 | 38383 | aZ9t | processes | action.command | ls -Aww
+# threads
+# threads
+
+* main loop: initial setup, list of possible virtual devices, list of possible wire/less nics, read config, launch threads for everything else, trap signals, graceful shutdown
+* gather info on the state of the world, one thread per command, parse it, and record it: process list with rdomains, routes in all rdomains, ifconfig, bandwidth used, ping connections
+* choose default route on rdomain 0 and make it so
+* 1 thread per nic to maintain connection: rdomain, physical connection, ipsec connection, vxlan connection, pf rules, ipsec rules
+
+--
+
 * delete the vpn over wlan route on cleanup
 * refactor to use https://github.com/wdanilo/haskell-logger
 * or maybe https://github.com/Soostone/katip

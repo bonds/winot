@@ -6,7 +6,8 @@ module Wlan where
 
 import Data.HashMap.Lazy as H ((!), HashMap)
 import Protolude
-import Util
+import Util.Misc
+import Util.Run
 import World
 import qualified Control.Concurrent.Thread.Delay as D
 import qualified Control.Monad as M
