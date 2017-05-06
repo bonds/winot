@@ -1,7 +1,7 @@
 {-# OPTIONS_GHC -Wall -Werror  #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell   #-}
-{-# LANGUAGE NoImplicitPrelude #-}
 -- {-# LANGUAGE BangPatterns #-}
 
 module Status.Process where

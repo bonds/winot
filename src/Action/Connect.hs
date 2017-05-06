@@ -1,46 +1,91 @@
+{-# OPTIONS_GHC -Wall -Werror  #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell   #-}
-{-# LANGUAGE BangPatterns #-}
 
-module Connect where
+module Action.Connect where
 
 import Protolude hiding (handle)
--- import Control.Monad ((>>))
-import Util.Run
 import Util.Log
+import Util.Run
 import Status.Interface
-import Status.Process
-import Status.Route
-import World
 import qualified Control.Concurrent as C
-import qualified Control.Concurrent.Thread.Delay as D
-import qualified Control.Monad as M
-import qualified Control.Monad.Loops as M
-import qualified Data.Text as T
-import qualified System.Exit as E
-import qualified System.Posix.Process as P
-import qualified System.Posix.Signals as P
 import qualified Control.Monad.Logger as ML
-import qualified Data.UnixTime as Time
-import Data.UnixTime (UnixTime)
--- import qualified Foreign.C.Types
+import qualified Control.Concurrent.STM as S
+import Data.List ((\\))
 
-default (Text, Integer, Double)
+checkRD0 :: [Interface] -> ML.LoggingT IO Bool
+checkRD0 ifs =
+    case find (\x -> interface x == "vether0") ifs of
+        Just i ->
+            if isJust (ifRDomain i) then fixIt
+            else return True
+        Nothing ->fixIt
+  where
+    fixIt = do
+        run LRAction "ifconfig vether0 inet 192.168.211.1/32"
+        run LRAction "ifconfig vether0 rdomain 0"
+        run LRAction "ifconfig vether0 group stayd_wlan"
+        run LRAction "route delete default"
+        run LRAction "route add default 192.168.211.1"
+        return False
 
--- configure rdomain 0 with vether0
--- set the rdomain
--- connect to physical network
+-- make certain every physical device is in its own rdomain
+checkRdomains :: [Interface] -> ML.LoggingT IO Bool
+checkRdomains ifs = do
+    results <- helper True [] ifs
+    return $ fst3 results
+  where
+    helper :: Bool -> [Interface] -> [Interface] -> ML.LoggingT IO (Bool, [Interface], [Interface])
+    helper nochanges done [] = return (nochanges, done, [])
+    helper nochanges done todo@(x:xs) = do
+        let allIfs = done ++ todo
+        if x `elem` connectableInterfaces allIfs && overlap x allIfs then do
+            run LRAction $ "ifconfig " <> interface x <> " rdomain " <> show (next allIfs)
+            helper False (done ++ [x { ifRDomain = Just $ next allIfs }]) xs
+        else
+            helper nochanges (done ++ [x]) xs
+    fst3 (a,_,_) = a
+    used xs = sort $ mapMaybe ifRDomain $ connectableInterfaces xs
+    next xs = fromMaybe 0 $ headMay $ filter (`notElem` used xs) [1..]
+    overlap x xs = isNothing (ifRDomain x) || ifRDomain x `elem` map Just (used $ xs \\ [x])
+
+connect :: Interface -> ML.LoggingT IO ()
+connect i =
+    case ifLock i of
+        Just lock -> do
+            gotLock <- liftIO $ S.atomically $ S.tryPutTMVar lock ()
+            when gotLock $ do
+                _ <- liftIO $ C.forkIO $ runMyLogs $ do
+                    $(myLogTH) LLDevInfo [Tag "youarehere"] Nothing
+                    helper i
+                    liftIO $ S.atomically $ S.takeTMVar lock
+                    return ()
+                return ()
+        Nothing -> return ()
+  where
+    helper i'
+      | ifdClass (ifDriver i') == ICwireless = connectWireless i'
+      | otherwise = return ()
+
+connectWireless :: Interface -> ML.LoggingT IO ()
+connectWireless _ = putStrLn ("hello, wireless" :: Text)
+
+-- load wireless config
+-- scan for networks
+-- find matching network with strongest bssid
+-- if none, give up, otherwise continue
+-- connect to wireless network
+-- wait until connection is made
 -- get IP from DHCP server
 -- set default gateway to use raw connection
+
 -- add NAT rules from vether0 to this connection
 -- create ipsec tunnel
 -- create gre tunnel
 -- add route to vpn server
 -- set default gateway to use gre tunnel
 -- mark as ready
-
-
 
 -- function active {
 --     count=1
@@ -134,4 +179,3 @@ default (Text, Integer, Double)
 --     # fi
 --     sleep 5
 -- done
-

@@ -5,18 +5,17 @@
 
 module Status.Interface where
 
-import Protolude
-import Util.Run
-import Util.Log
--- import Util.Misc
-import qualified Text.Trifecta as Parse
-import qualified Data.Text as T
-import qualified Control.Monad.Logger as ML
--- import qualified GHC.Int as G
--- import qualified Control.Concurrent.STM as S
-import Data.UnixTime (UnixTime, getUnixTime)
--- import qualified GHC.Show
 import Data.List ((\\))
+import Data.UnixTime (UnixTime, getUnixTime)
+import Protolude
+import Status.Config
+import Util.Log
+import Util.Orphan ()
+import Util.Run
+import qualified Control.Concurrent.STM as S
+import qualified Control.Monad.Logger as ML
+import qualified Data.Text as T
+import qualified Text.Trifecta as Parse
 
 default (Text, Integer, Double)
 
@@ -27,12 +26,13 @@ data Interface = Interface
     , ifRDomain           :: Maybe Integer
     , ifBandwidthHistory  :: [IfBandwidth]
     , ifWirelessDetail    :: Maybe IfWirelessDetail
-    } deriving Show
+    , ifLock              :: Maybe (S.TMVar ())
+    } deriving (Show, Eq)
 
 data IfDriver = IfDriver
     { ifdName             :: Text
     , ifdClass            :: IfClass
-    } deriving Show
+    } deriving (Show, Eq)
 
 data IfClass = ICunknown | ICvirtual | ICmobile | ICwireless | ICusb | ICpci
     deriving (Show, Eq, Ord)
@@ -41,46 +41,59 @@ data IfStatus = IfStatus
     { ifUp                :: Bool -- ifconfig says its up
     , ifReady             :: Bool -- ready for routing internet bound traffic
     , ifStatusDetail      :: Maybe Text -- ifconfig status line
-    } deriving Show
+    } deriving (Show, Eq)
 
 data IfBandwidth = IfBandwidth
     { ifbWhen             :: UnixTime
     , ifbBytes            :: Integer
-    } deriving Show
+    } deriving (Show, Eq)
 
 data IfStrength = IfStrength
     { ifsWhen             :: UnixTime
     , ifsStrength         :: Integer
-    } deriving Show
+    } deriving (Show, Eq)
 
 data IfWirelessDetail = IfWirelessDetail
     { ifNetworkID         :: Maybe Text
     , ifStationID         :: Maybe Text
     , ifStrengthHistory   :: [IfStrength]
     , ifNetworks          :: WirelessNetworks
-    } deriving Show
+    } deriving (Show, Eq)
 
 data WirelessNetworks = WirelessNetworks
     { wnNetworks          :: [WirelessNetwork]
     , wnLastScan          :: Maybe UnixTime
-    } deriving Show
+    } deriving (Show, Eq)
 
 data WirelessNetwork = WirelessNetwork
-    { wnSSID              :: Text
+    { wnSSID              :: Maybe Text
+    , wnPassword          :: Maybe Text
     , wnAPs               :: [WirelessAccessPoint]
-    } deriving Show
+    } deriving (Show, Eq)
 
 data WirelessAccessPoint = WirelessAccessPoint
     { wnBSSID             :: Text
     , wnChan              :: Integer
     , wnStrength          :: Integer
     , wnSpeed             :: Text
-    } deriving Show
+    } deriving (Show, Eq)
 
 data InterfaceInfo = WirelessInfo IfWirelessDetail | Status Text | Ignored
 
+preferredNetwork :: WirelessNetworks -> Maybe WirelessNetwork
+preferredNetwork wns = lastMay $ sortOn strength $ wnNetworks wns
+  where
+    strength :: WirelessNetwork -> Integer
+    strength wn = maximum $ map wnStrength $ wnAPs wn
+
+familiarNetworks :: WirelessNetworks -> WirelessNetworks
+familiarNetworks wns = wns { wnNetworks = filter (isJust . wnPassword) (wnNetworks wns) }
+
 interface :: Interface -> Text
 interface a = ifdName (ifDriver a) <> show (ifInstance a)
+
+connectableInterfaces :: [Interface] -> [Interface]
+connectableInterfaces = filter (\x -> ICmobile <= ifdClass ( ifDriver x))
 
 usbWiredInterfaces :: ML.LoggingT IO [Interface]
 usbWiredInterfaces = do
@@ -169,6 +182,7 @@ interfaceParser time ds = do
         , ifRDomain           = rdomain'
         , ifBandwidthHistory  = []
         , ifWirelessDetail    = getWireless therest
+        , ifLock              = Nothing
         }
 
   where
@@ -221,47 +235,39 @@ wirelessParser time = do
     Parse.whiteSpace
     _ <- Parse.text "ieee80211:"
     Parse.whiteSpace
-    _ <- Parse.text "nwid"
-    Parse.whiteSpace
-    networkID' <- Parse.stringLiteral <|> do
-        a <- Parse.some $ Parse.noneOf [' ', '\n']
-        return $ T.pack a
-    Parse.whiteSpace
-    _ <- Parse.optional $ do
-        _ <- Parse.text "chan"
+    wn <- Parse.optional $ wirelessNetworkParser []
+    nwid <- Parse.optional nwidParser
+    case wn of
+        Just wn' ->
+            return $ WirelessInfo IfWirelessDetail
+                { ifNetworkID         = wnSSID wn'
+                , ifStationID         = fmap wnBSSID $ head $ wnAPs wn'
+                , ifStrengthHistory   =
+                    case fmap wnStrength $ head $ wnAPs wn' of
+                        Just s ->
+                            [IfStrength
+                                { ifsWhen         = time
+                                , ifsStrength     = s
+                                }]
+                        Nothing -> []
+                , ifNetworks          = emptyScan
+                }
+        Nothing ->
+            return $ WirelessInfo IfWirelessDetail
+                { ifNetworkID         = nwid
+                , ifStationID         = Nothing
+                , ifStrengthHistory   = []
+                , ifNetworks          = emptyScan
+                }
+  where
+    nwidParser = do
+        _ <- Parse.text "nwid"
         Parse.whiteSpace
-        _ <- Parse.integer
-        Parse.whiteSpace
-    stationIDAndStrength <- Parse.optional $ do
-        _ <- Parse.text "bssid"
-        Parse.whiteSpace
-        bssid <- Parse.some $ Parse.notChar ' '
-        Parse.whiteSpace
-        _ <- Parse.char '-'
-        strength <- Parse.integer
-        _ <- Parse.text "dBm"
-        return (T.pack bssid, strength)
-    _ <- Parse.many $ Parse.notChar '\n'
-    _ <- Parse.newline
-    return $ WirelessInfo IfWirelessDetail
-        { ifNetworkID         =
-            case networkID' of
-                "" -> Nothing
-                a  -> Just a
-        , ifStationID         = fmap fst stationIDAndStrength
-        , ifStrengthHistory   =
-            case fmap snd stationIDAndStrength of
-                Just s ->
-                    [IfStrength
-                        { ifsWhen         = time
-                        , ifsStrength     = s
-                        }]
-                Nothing -> []
-        , ifNetworks          = WirelessNetworks
-            { wnNetworks      = []
-            , wnLastScan      = Nothing
-            }
-        }
+        networkID' <- Parse.stringLiteral <|> do
+            a <- Parse.some $ Parse.noneOf [' ', '\n']
+            return $ T.pack a
+        _ <- Parse.newline
+        return networkID'
 
 -- instance Show Interface where
 --     show i = "{name = " <> T.unpack (interface i) <> ", up = " <> show (up i) <> rd <> st <> wi <> "}"
@@ -434,8 +440,105 @@ getInterfaceStats = runRead LRStatus $ "systat -w 100 -B ifstat " <> sampleSizeI
   where
     sampleSizeInSeconds = "1"
 
--- updateInterfaceStats :: World -> IO ()
--- updateInterfaceStats world = do
---     stats <- getInterfaceStats
---     atomWrite (interfaceStats world) stats
+wirelessNetworks :: ML.LoggingT IO WirelessNetworks
+wirelessNetworks = do
+    $(myLogTH) LLDevInfo [Reason LRStatus, Tag "youarehere"] Nothing
+    wifs <- wirelessInterfaces
+    case head wifs of
+        Just wif -> do
+            ws <- getWirelessNetworks wif
+            time <- liftIO getUnixTime
+            passwords <- wirelessPasswords
+            case parseWirelessScan time passwords ws of
+                Parse.Success result -> return result
+                Parse.Failure err -> do
+                    mapM_
+                        ($(myLogTH) LLUserTellDevAppIsBroken [Reason LRStatus, Tag "parseerror"] . Just)
+                        (T.lines $ show err)
+                    return emptyScan
+        _ -> return emptyScan
+
+emptyScan :: WirelessNetworks
+emptyScan = WirelessNetworks
+    { wnNetworks          = []
+    , wnLastScan          = Nothing
+    }
+
+parseWirelessScan :: UnixTime -> [WirelessPassword] -> Text -> Parse.Result WirelessNetworks
+parseWirelessScan time ps t = Parse.parseString (wirelessScanParser time ps) mempty (T.unpack t)
+
+wirelessNetworkParser :: [WirelessPassword] -> Parse.Parser WirelessNetwork
+wirelessNetworkParser ps = do
+    _ <- Parse.text "nwid"
+    Parse.whiteSpace
+    networkID' <- Parse.stringLiteral <|> do
+        a <- Parse.some $ Parse.noneOf [' ', '\n']
+        return $ T.pack a
+    Parse.whiteSpace
+    _ <- Parse.text "chan"
+    Parse.whiteSpace
+    chan <- Parse.integer
+    Parse.whiteSpace
+    _ <- Parse.text "bssid"
+    Parse.whiteSpace
+    bssid <- Parse.some $ Parse.notChar ' '
+    Parse.whiteSpace
+    _ <- Parse.char '-'
+    strength <- Parse.integer
+    _ <- Parse.text "dBm"
+    Parse.whiteSpace
+    speed <- Parse.some $ Parse.notChar ' '
+    Parse.whiteSpace
+    _ <- Parse.many $ Parse.notChar '\n'
+    _ <- Parse.newline
+    return WirelessNetwork
+        { wnSSID            = ssid networkID'
+        , wnPassword        = findPassword networkID'
+        , wnAPs             = [WirelessAccessPoint
+            { wnBSSID       = T.pack bssid
+            , wnChan        = chan
+            , wnStrength    = strength
+            , wnSpeed       = T.pack speed
+            }]
+        }
+  where
+    ssid n = if n == "" then Nothing else Just n
+    findPassword n =
+        case find (\x -> ssid n == Just (wpNetwork x)) ps of
+            Just wp -> case wpPassword wp of
+                Just wp' -> Just wp'
+                Nothing  -> Just "" -- this is an open network, not a missing password
+            Nothing -> Nothing
+
+wirelessScanParser :: UnixTime -> [WirelessPassword] -> Parse.Parser WirelessNetworks
+wirelessScanParser time ps = do
+    _ <- Parse.some $
+        Parse.try $ do
+            Parse.try parseIEEE <|> parseMisc
+            Parse.newline
+    networks <- Parse.some $ Parse.try $ do
+        Parse.whiteSpace
+        wirelessNetworkParser ps
+    return WirelessNetworks
+        { wnNetworks          = fst $ consolidate [] networks
+        , wnLastScan          = Just time
+        }
+  where
+    parseIEEE = do
+        Parse.whiteSpace
+        _ <- Parse.text "ieee80211:"
+        _ <- Parse.some $ Parse.notChar '\n'
+        return ()
+    parseMisc = do
+        _ <- Parse.some $ Parse.notChar '\n' <* Parse.notFollowedBy (Parse.text "nwid")
+        return ()
+    consolidate :: [WirelessNetwork] -> [WirelessNetwork] -> ([WirelessNetwork], [WirelessNetwork])
+    consolidate done [] = (done, [])
+    consolidate done (x:xs) =
+        case find (\a -> wnSSID x == wnSSID a) done of
+            Just wn -> consolidate ((done \\ [wn]) ++ [wn { wnAPs = wnAPs wn ++ wnAPs x}]) xs
+            Nothing -> consolidate (done ++ [x]) xs
+
+getWirelessNetworks :: Interface -> ML.LoggingT IO Text
+getWirelessNetworks i = runRead LRStatus $ "ifconfig " <> interface i <> " scan"
 

@@ -19,9 +19,12 @@ library
   exposed-modules:     Util.Log
                      , Util.Misc
                      , Util.Run
-                     , Status.Process
+                     , Util.Orphan
+                     , Status.Config
                      , Status.Interface
+                     , Status.Process
                      , Status.Route
+                     , Action.Connect
                      , Loop
                      , World
   other-modules:

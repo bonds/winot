@@ -1,5 +1,5 @@
-{-# LANGUAGE NoImplicitPrelude #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE NoImplicitPrelude    #-}
+{-# LANGUAGE OverloadedStrings    #-}
 
 module Util.Misc where
 
@@ -11,7 +11,6 @@ import qualified Control.Monad as M
 import qualified Data.Text as T
 import qualified System.Exit as E
 import qualified System.Log.Logger as L
-import qualified GHC.Show (show)
 
 default (Text, Integer, Double)
 
@@ -61,8 +60,3 @@ lastMatchFirstGroup xs = case lastMay xs of
 
 initOrEmpty :: [a] -> [a]
 initOrEmpty = reverse . drop 1 . reverse -- gives a empty list if less than 2 in list
-
-newtype WTVar a = TVar a
-
-instance Show (WTVar a) where
-    show = show
