@@ -3,15 +3,18 @@
 -- {-# LANGUAGE TemplateHaskell   #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 
-module Status.Network where
+module Status.Connection where
 
 import Protolude
--- import Util.Run
+import Util.Run
+import Util.Misc
+import Util.Log
 -- import Util.Log
 -- import qualified Text.Trifecta as Parse
--- import qualified Data.Text as T
--- import qualified Control.Monad.Logger as ML
+import qualified Data.Text as T
+import qualified Control.Monad.Logger as ML
 -- import qualified GHC.Show
+import qualified Control.Concurrent.Thread.Delay as D
 
 default (Text, Integer, Double)
 
@@ -79,18 +82,17 @@ default (Text, Integer, Double)
 --         Just m -> T.words (B.fromJust $ U.group 0 m) `atMay` 6
 --         Nothing -> Nothing
 
--- -- ping up to X times, if any are OK, stop, and return OK
--- ping :: Int -> T.Text -> IO Bool
--- ping = pingVia 0
+-- ping up to X times, if any are OK, stop, and return OK
+ping :: Integer -> Text -> ML.LoggingT IO Bool
+ping = pingVia 0
 
--- {-@ pingVia :: Nat -> count:Int -> T.Text -> IO Bool / [count] @-}
--- pingVia :: Int -> Int -> T.Text -> IO Bool
--- pingVia rt count host
---     | count < 1 = M.return False
---     | otherwise = do
---         ec <- runEC $ T.concat ["ping -V ", T.pack (show rt), " -q -c 1 -w 1 ", host]
---         if wasSuccess ec then M.return True else do
---             D.delay $ (10::Integer)^(6::Integer) -- wait a second between ping attempts
---             pingVia rt (count-1) host
-
+{-@ pingVia :: Nat -> count:Integer -> T.Text -> ML.LoggingT IO Bool / [count] @-}
+pingVia :: Integer -> Integer -> Text -> ML.LoggingT IO Bool
+pingVia rt count host
+    | count < 1 = return False
+    | otherwise = do
+        ec <- runEC LRStatus $ T.concat ["ping -V ", T.pack (show rt), " -q -c 1 -w 1 ", host]
+        if wasSuccess ec then return True else do
+            liftIO $ D.delay $ (10::Integer)^(6::Integer) -- wait a second between ping attempts
+            pingVia rt (count-1) host
 

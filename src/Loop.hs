@@ -5,27 +5,28 @@
 
 module Loop where
 
-import Protolude hiding (handle)
--- import Control.Monad ((>>))
-import Util.Run
-import Util.Log
 import Action.Connect
+import Data.UnixTime (UnixTime)
+import Protolude hiding (handle)
+import Status.Filter
 import Status.Interface
+import Status.Lease
 import Status.Process
 import Status.Route
+import Util.Log
+import Util.Run
 import World
 import qualified Control.Concurrent as C
+import qualified Control.Concurrent.STM as S
 import qualified Control.Concurrent.Thread.Delay as D
 import qualified Control.Monad as M
+import qualified Control.Monad.Logger as ML
 import qualified Control.Monad.Loops as M
 import qualified Data.Text as T
+import qualified Data.UnixTime as Time
 import qualified System.Exit as E
 import qualified System.Posix.Process as P
 import qualified System.Posix.Signals as P
-import qualified Control.Monad.Logger as ML
-import qualified Data.UnixTime as Time
-import Data.UnixTime (UnixTime)
-import qualified Control.Concurrent.STM as S
 
 default (Text, Integer, Double)
 
@@ -63,18 +64,22 @@ iteration oldWorld = do
     newTime             <- liftIO Time.getUnixTime
     newProcesses        <- processes
     newRoutes           <- routes
+    newLeases           <- leases
+    newFilterAnchors    <- filterAnchors
     newInterfaces       <- interfaces
     newInterfaceStats   <- interfaceStats
     ifs <- liftIO $ mergeInterfaceInfo
         newInterfaces
         (woInterfaces oldWorld)
         newInterfaceStats
+        newRoutes
+        newLeases
+        newFilterAnchors
 
     let newWorld = oldWorld
             { woLoopTimes   = mergeLoopTimes newTime $ woLoopTimes oldWorld
             , woInterfaces  = ifs
             , woProcesses   = newProcesses
-            , woRoutes      = newRoutes
             }
     $(myLogTH) LLDevInfo [Tag "world"] $ Just $ show newWorld
     -- (re)load config
@@ -82,14 +87,14 @@ iteration oldWorld = do
     c1 <- checkRD0 $ woInterfaces newWorld
     c2 <- checkRdomains $ woInterfaces newWorld
     when (c1 && c2) $
-        mapM_ connect $ connectableInterfaces $ woInterfaces newWorld
+        mapM_ (connect newWorld) $ connectableInterfaces $ woInterfaces newWorld
 
     liftIO $ delayNeeded >>= D.delay
     return newWorld
 
   where
 
-    secondsBetweenLoops = 5 :: Integer
+    secondsBetweenLoops = 1 :: Integer
 
     delayNeeded :: IO Integer
     delayNeeded = case lastMay $ woLoopTimes oldWorld of
@@ -120,24 +125,25 @@ cleanUp tid = do
 mergeLoopTimes :: UnixTime -> [UnixTime] -> [UnixTime]
 mergeLoopTimes nt ots = take 2 $ nt : ots
 
-mergeInterfaceInfo :: [Interface] -> [Interface] -> [IfStats] -> IO [Interface]
-mergeInterfaceInfo [] _ _ = return []
-mergeInterfaceInfo (x:xs) oldInterfaces newStats = do
-    newII <- mergeII x oldInterfaces newStats
-    moreII <- mergeInterfaceInfo xs oldInterfaces newStats
+mergeInterfaceInfo :: [Interface] -> [Interface] -> [IfStats] -> [Route] -> [Lease] -> [FilterAnchor] -> IO [Interface]
+mergeInterfaceInfo [] _ _ _ _ _ = return []
+mergeInterfaceInfo (x:xs) oldInterfaces newStats newRoutes newLeases newFilterAnchors = do
+    newII <- mergeII x oldInterfaces newStats newRoutes newLeases newFilterAnchors
+    moreII <- mergeInterfaceInfo xs oldInterfaces newStats newRoutes newLeases newFilterAnchors
     return $ newII : moreII
   where
     -- keeping history even if bssid or network changed...hopefully that's good enough
-    mergeII :: Interface -> [Interface] -> [IfStats] -> IO Interface
-    mergeII i oi ns = do
+    mergeII :: Interface -> [Interface] -> [IfStats] -> [Route] -> [Lease] -> [FilterAnchor] -> IO Interface
+    mergeII i os ns nr nl fas = do
         newLock <- S.atomically S.newEmptyTMVar
+        newReady <- S.atomically $ S.newTVar False
         return $ x
-            { ifBandwidthHistory  =
-                take 100 $ makeNewBandwidthHistory i ns
-                         ++ findOldBandwidthHistory i oi
+            { ifBandwidthHistory  = Just $
+                take 100 $ fromMaybe [] (makeNewBandwidthHistory i ns)
+                         ++ fromMaybe [] (findOldBandwidthHistory i os)
             , ifWirelessDetail    =
                 case ifWirelessDetail i of
-                    Just ifwd -> case find (\old -> interface old == interface i) oi of
+                    Just ifwd -> case find (\old -> interface old == interface i) os of
                         Just iold -> case ifWirelessDetail iold of
                             Just od -> Just ifwd
                                 { ifStrengthHistory = take 100 $ ifStrengthHistory ifwd ++ ifStrengthHistory od }
@@ -145,23 +151,51 @@ mergeInterfaceInfo (x:xs) oldInterfaces newStats = do
                         Nothing -> Just ifwd
                     Nothing -> Nothing
             , ifLock              =
-                case ifLock i of
+                case findOldLock i os of
                     Just il -> Just il
                     Nothing -> Just newLock
+            , ifStatus            = (ifStatus i)
+                {
+                    ifReady       =
+                        case findOldInterface i os of
+                            Just o -> ifReady $ ifStatus o
+                            Nothing -> Just newReady
+                }
+            , ifIPv4Detail        = case ifIPv4Detail i of
+                Just ipd -> Just ipd
+                    { ifIPv4Routes = Just $
+                        filter (\y -> interface i == routeInterface y) nr
+                    , ifIPv4Lease = find (\y -> interface i == lsInterface y && interfaceSSID i == lsSSID y) nl
+                    }
+                Nothing -> Nothing
+            , ifFilters           = case ifRDomain i of
+                Just rd -> case find (\y -> anName y == show rd) fas of
+                    Just fa -> Just $ anFilters fa
+                    Nothing -> Just []
+                Nothing -> Just []
             }
 
-findOldBandwidthHistory :: Interface -> [Interface] -> [IfBandwidth]
+findOldInterface :: Interface -> [Interface] -> Maybe Interface
+findOldInterface i = find (\old -> interface old == interface i)
+
+findOldLock :: Interface -> [Interface] -> Maybe (S.TMVar ())
+findOldLock i oi =
+    case find (\old -> interface old == interface i) oi of
+        Just a -> ifLock a
+        Nothing -> Nothing
+
+findOldBandwidthHistory :: Interface -> [Interface] -> Maybe [IfBandwidth]
 findOldBandwidthHistory i oi =
     case find (\old -> interface old == interface i) oi of
         Just a -> ifBandwidthHistory a
-        Nothing -> []
+        Nothing -> Nothing
 
-makeNewBandwidthHistory :: Interface -> [IfStats] -> [IfBandwidth]
+makeNewBandwidthHistory :: Interface -> [IfStats] -> Maybe [IfBandwidth]
 makeNewBandwidthHistory i ns =
     case find (\stats -> iftInterface stats == interface i) ns of
-        Just a -> [IfBandwidth
+        Just a -> Just [IfBandwidth
             { ifbWhen     = iftWhen a
             , ifbBytes    = iftInputBytes a + iftOutputBytes a
             }]
-        Nothing -> []
+        Nothing -> Just []
 

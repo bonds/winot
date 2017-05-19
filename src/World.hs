@@ -4,7 +4,6 @@ module World where
 
 import Protolude
 import Status.Process
-import Status.Route
 import Status.Interface
 import qualified GHC.Int as G
 import Data.UnixTime (UnixTime)
@@ -17,7 +16,6 @@ data World = World
     , woLoopTimes         :: [UnixTime]
     , woInterfaces        :: [Interface]
     , woProcesses         :: [Process]
-    , woRoutes            :: [Route]
     } deriving Show
 
 data Config = Config
@@ -34,5 +32,4 @@ initialWorld = World
     , woLoopTimes         = []
     , woInterfaces        = []
     , woProcesses         = []
-    , woRoutes            = []
     }

@@ -1,8 +1,18 @@
-# logging levels
+# high level todos
 
-maybe should use tags or streams instead of levels?
+* performance optimization: lazy logging, lazy parsing/generation of World data
+* add documenation
+* cleanup on shutdown
 
-category
+# add tests for bugs so far:
+
+* didn't merge locks between new and old versions of world, always made new locks
+* didn't restrict preferred network search to familiar networks
+
+# design notes...to turn into docs?
+
+## logging levels
+### category
 
 decision: user relevant actions taken, i.e. switched to wwan
 action.run: action commands run + exit codes, i.e. [255] route change
@@ -25,15 +35,13 @@ message: what happened
 
 level | date | thread id | entry id | source | category | message
 [Debug] | 20170410 04:05:06.43212 | 38383 | aZ9t | processes | action.command | ls -Aww
-# threads
+
 # threads
 
 * main loop: initial setup, list of possible virtual devices, list of possible wire/less nics, read config, launch threads for everything else, trap signals, graceful shutdown
 * gather info on the state of the world, one thread per command, parse it, and record it: process list with rdomains, routes in all rdomains, ifconfig, bandwidth used, ping connections
 * choose default route on rdomain 0 and make it so
 * 1 thread per nic to maintain connection: rdomain, physical connection, ipsec connection, vxlan connection, pf rules, ipsec rules
-
---
 
 * delete the vpn over wlan route on cleanup
 * refactor to use https://github.com/wdanilo/haskell-logger
@@ -46,35 +54,26 @@ level | date | thread id | entry id | source | category | message
 * use parsec instead of regex for parsing ifconfig, routes, wlan scan, etc
 * use the state monad instead of World?
 
-main
-    if ping 8.8.8.8
-        sleep
-    else
-        figure out what is wrong
-        fix it
-    end
-    go to main
+# detect and correctly fix (or log) *more* problems
 
-figure out what is wrong
-    no vpn process
-    no wlan physical connection
-        no familiar network in range
-        interface in a bad state, need to reboot
-        incorrect password
-    weak/unreliable wlan physical connection
-    vpn server unpingable
-    vpn server refusing ssh connections
-    vpn server not sending packets back over SSH connection
-    cant auth for vpn connection
-        ssh auth sock file is wrong
-        haven't added any good keys to ssh-agent
-    no pppd process
-    traffic cant get where it needs to go
-        pf is blocking the traffic
-        routes are not setup correctly
-            vpn public via wlan private ip
-            default via working gateway
-    wlan if doesnt have a valid IP
-        haven't asked for an IP yet
-        dhcp server not responding, maybe pf is blocking?
-
+no vpn process
+no wlan physical connection
+    no familiar network in range
+    interface in a bad state, need to reboot
+    incorrect password
+weak/unreliable wlan physical connection
+vpn server unpingable
+vpn server refusing ssh connections
+vpn server not sending packets back over SSH connection
+cant auth for vpn connection
+    ssh auth sock file is wrong
+    haven't added any good keys to ssh-agent
+no pppd process
+traffic cant get where it needs to go
+    pf is blocking the traffic
+    routes are not setup correctly
+        vpn public via wlan private ip
+        default via working gateway
+wlan if doesnt have a valid IP
+    haven't asked for an IP yet
+    dhcp server not responding, maybe pf is blocking?

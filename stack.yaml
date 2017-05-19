@@ -11,8 +11,8 @@ packages:
 extra-deps:
 - semiring-simple-1.0.0.1
 - string-conv-0.1
-- htoml-0.1.0.3
 - liquidhaskell-cabal-0.1.1.0
+- ip-0.9
 
 # Override default flag values for local packages and extra-deps
 flags: {}
@@ -40,3 +40,7 @@ extra-package-dbs: []
 
 explicit-setup-deps:
   "*": true
+
+build:
+  library-profiling: true
+  executable-profiling: true

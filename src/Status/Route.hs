@@ -22,7 +22,7 @@ data Route = Route
     , flags           :: Text
     , routeInterface  :: Text
     }
-    deriving Show
+    deriving (Show, Eq)
 
 routes :: ML.LoggingT IO [Route]
 routes = do

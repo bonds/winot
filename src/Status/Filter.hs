@@ -3,7 +3,7 @@
 {-# LANGUAGE TemplateHaskell   #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 
-module Status.Route where
+module Status.Filter where
 
 import Protolude
 import Util.Run
@@ -12,87 +12,141 @@ import qualified Text.Trifecta as Parse
 import qualified Data.Text as T
 import qualified Control.Monad.Logger as ML
 -- import qualified GHC.Show
+import Net.Types
+import qualified Net.IPv4.Text as IP
+import qualified Net.IPv4.Range.Text as IPR
 
 default (Text, Integer, Double)
 
--- data Route = Route
---     { table           :: Integer
---     , destination     :: Text
---     , gateway         :: Text
---     , flags           :: Text
---     , routeInterface  :: Text
---     }
---     deriving Show
+--   anchor "2" all {
+--     match out on stayd2r inet from any to ! <private> rtable 2 nat-to 10.0.0.136
+--     match out inet from any to 10.0.0.0/24 rtable 2 nat-to 10.0.0.136
+--   }
 
--- routes :: ML.LoggingT IO [Route]
--- routes = do
---     $(myLogTH) LLDevInfo [Reason LRStatus, Tag "youarehere"] Nothing
---     rs <- mapM getRoutesAndParse [0,1,2,3,4]
---     return $ concat rs
---   where
---     getRoutesAndParse rt = do
---         rs <- getRoutes rt
---         case parseRoutes rs rt of
---             Parse.Success result -> return result
---             Parse.Failure err -> do
---                 mapM_
---                     ($(myLogTH) LLUserTellDevAppIsBroken [Reason LRStatus, Tag "parseerror"] . Just)
---                     (T.lines $ show err)
---                 return []
+data FilterAnchor = FilterAnchor
+    { anName    :: Text
+    , anFilters :: [Filter]
+    } deriving (Show, Eq)
 
--- parseRoutes :: Text -> Integer -> Parse.Result [Route]
--- parseRoutes t rt = Parse.parseString (routesParser rt) mempty (T.unpack t)
+data Filter =
+      FiNATToPrivate
+        { npNetwork :: IPv4Range
+        , npRTable  :: Integer
+        , npGateway :: IPv4
+        }
+    | FiNATToInternet
+        { niGroup   :: Text
+        , niRTable  :: Integer
+        , niGateway :: IPv4
+        }
+    | FiUnrecognized
+    deriving (Show, Eq)
 
--- routesParser :: Integer -> Parse.Parser [Route]
--- routesParser rt = noTable <|> routeTableParser rt
---   where
---     -- if the routing table doesn't exist, nothing prints to stdout
---     -- and stderr says: "routing table 4: No such file or directory"
---     noTable = do
---         _ <- Parse.eof
---         return []
+filterAnchors :: ML.LoggingT IO [FilterAnchor]
+filterAnchors = do
+    $(myLogTH) LLDevInfo [Reason LRStatus, Tag "youarehere"] Nothing
+    fs <- getFilters
+    case parseAnchors fs of
+        Parse.Success result -> return result
+        Parse.Failure err -> do
+            mapM_
+                ($(myLogTH) LLUserTellDevAppIsBroken [Reason LRStatus, Tag "parseerror"] . Just)
+                (T.lines $ show err)
+            return []
 
--- routeTableParser :: Integer -> Parse.Parser [Route]
--- routeTableParser rt = do
---     _ <- Parse.text "Routing tables\n"
---     -- if the routing table exists, but is empty, the "Routing tables"
---     -- header line prints to stdout but none of the other header lines
---     -- are printed, i.e. no "Internet:" or "Destination" lines
---     table' <- Parse.optional $ do
---         Parse.whiteSpace
---         _ <- Parse.text "Internet:"
---         Parse.whiteSpace
---         _ <- Parse.text "Destination"
---         _ <- Parse.some $ Parse.notChar '\n'
---         _ <- Parse.newline
---         Parse.some $ routesLineParser rt
---     return $ fromMaybe [] table'
+parseAnchors :: Text -> Parse.Result [FilterAnchor]
+parseAnchors t = Parse.parseString anchorsParser mempty (T.unpack t)
 
--- routesLineParser :: Integer -> Parse.Parser Route
--- routesLineParser rt = do
---     destination' <- Parse.some $ Parse.notChar ' '
---     Parse.whiteSpace
---     gateway' <- Parse.some $ Parse.notChar ' '
---     Parse.whiteSpace
---     flags' <- Parse.some $ Parse.notChar ' '
---     Parse.whiteSpace
---     _ <- Parse.integer
---     Parse.whiteSpace
---     _ <- Parse.integer
---     Parse.whiteSpace
---     _ <- Parse.some $ Parse.notChar ' '
---     Parse.whiteSpace
---     _ <- Parse.integer
---     Parse.whiteSpace
---     routeInterface' <- Parse.some $ Parse.noneOf [' ', '\n']
---     Parse.whiteSpace
---     return Route { table = rt
---             , destination     = T.pack destination'
---             , gateway         = T.pack gateway'
---             , flags           = T.pack flags'
---             , routeInterface  = T.pack routeInterface'
---             }
+anchorsParser :: Parse.Parser [FilterAnchor]
+anchorsParser = do
+    anchors' <- Parse.some $ anchorParser <|> unrecParser
+    return $ catMaybes anchors'
+  where
+    unrecParser = do
+        _ <- Parse.some $ Parse.notChar '\n'
+        _ <- Parse.newline
+        return Nothing
 
-getRules :: Integer -> ML.LoggingT IO Text
-getRules rt = runRead LRStatus $ "pfctl -a \"*\" -s rules"
+anchorParser :: Parse.Parser (Maybe FilterAnchor)
+anchorParser = do
+    Parse.whiteSpace
+    _ <- Parse.text "anchor"
+    Parse.whiteSpace
+    name <- Parse.stringLiteral
+    Parse.whiteSpace
+    _ <- Parse.text "all"
+    Parse.whiteSpace
+    _ <- Parse.char '{'
+    Parse.whiteSpace
+    filters <- Parse.some filterParser
+    Parse.whiteSpace
+    _ <- Parse.char '}'
+    Parse.whiteSpace
+    return $ Just FilterAnchor
+        { anName    = name
+        , anFilters = filters
+        }
+
+--   anchor "2" all {
+--     match out on stayd2r inet from any to ! <private> rtable 2 nat-to 10.0.0.136
+--     match out inet from any to 10.0.0.0/24 rtable 2 nat-to 10.0.0.136
+--   }
+
+filterParser :: Parse.Parser Filter
+filterParser = n2pParser <|> n2iParser
+
+--     match out inet from any to 10.0.0.0/24 rtable 2 nat-to 10.0.0.136
+n2pParser :: Parse.Parser Filter
+n2pParser = do
+    Parse.whiteSpace
+    _ <- Parse.text "match out inet from any to"
+    Parse.whiteSpace
+    network <- Parse.some $ Parse.notChar ' '
+    Parse.whiteSpace
+    _ <- Parse.text "rtable"
+    Parse.whiteSpace
+    rtable <- Parse.integer
+    Parse.whiteSpace
+    _ <- Parse.text "nat-to"
+    Parse.whiteSpace
+    gateway <- Parse.some $ Parse.noneOf [' ', '\n']
+    _ <- Parse.newline
+    case IPR.decode (T.pack network) :: Maybe IPv4Range of
+        Just nw -> case IP.decode (T.pack gateway) :: Maybe IPv4 of
+            Just gw ->
+                return FiNATToPrivate
+                    { npNetwork         = nw
+                    , npRTable          = rtable
+                    , npGateway         = gw
+                    }
+            Nothing -> Parse.raiseErr $ Parse.failed "couldn't parse gateway"
+        Nothing -> Parse.raiseErr $ Parse.failed "couldn't parse ip range"
+
+--     match out on stayd2r inet from any to ! <private> rtable 2 nat-to 10.0.0.136
+n2iParser :: Parse.Parser Filter
+n2iParser = do
+    Parse.whiteSpace
+    _ <- Parse.text "match out on"
+    Parse.whiteSpace
+    group' <- Parse.some $ Parse.notChar ' '
+    Parse.whiteSpace
+    _ <- Parse.text "inet from any to ! <private> rtable"
+    Parse.whiteSpace
+    rtable <- Parse.integer
+    Parse.whiteSpace
+    _ <- Parse.text "nat-to"
+    Parse.whiteSpace
+    gateway <- Parse.some $ Parse.noneOf [' ', '\n']
+    _ <- Parse.newline
+    case IP.decode (T.pack gateway) :: Maybe IPv4 of
+        Just gw ->
+            return FiNATToInternet
+                { niGroup           = T.pack group'
+                , niRTable          = rtable
+                , niGateway         = gw
+                }
+        Nothing -> Parse.raiseErr $ Parse.failed "couldn't parse gateway"
+
+getFilters :: ML.LoggingT IO Text
+getFilters = runRead LRStatus "pfctl -a \"stayd/*\" -s rules"
 
