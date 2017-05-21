@@ -9,7 +9,6 @@ import Data.List ((\\))
 import Data.UnixTime (UnixTime, getUnixTime)
 import Protolude
 import Status.Config
-import Status.Filter
 import Status.Lease (Lease)
 import Status.Route
 import Util.Log
@@ -30,7 +29,6 @@ data Interface = Interface
     , ifInstance          :: Integer        -- the 0 in athn0
     , ifStatus            :: IfStatus
     , ifRDomain           :: Maybe Integer
-    , ifFilters           :: Maybe [Filter]
     , ifBandwidthHistory  :: Maybe [IfBandwidth] -- set to Nothing if we haven't collected any yet
     , ifWirelessDetail    :: Maybe IfWirelessDetail
     , ifIPv4Detail        :: Maybe IfIPv4Detail
@@ -227,7 +225,6 @@ interfaceParser time ds = do
         , ifWirelessDetail    = getWireless therest
         , ifLock              = Nothing
         , ifIPv4Detail        = getIPv4 therest
-        , ifFilters           = Nothing
         }
 
   where
@@ -331,19 +328,15 @@ ipv4Parser = do
     Parse.whiteSpace
     _ <- Parse.text "netmask"
     Parse.whiteSpace
-    netmask <- Parse.some $ Parse.notChar ' '
-    broadcast <- Parse.optional $ Parse.try $ do
-        Parse.whiteSpace
-        _ <- Parse.text "broadcast"
-        Parse.whiteSpace
-        Parse.some $ Parse.noneOf [' ', '\n']
+    netmask <- Parse.some $ Parse.noneOf [' ', '\n']
+    broadcast <- Parse.optional $ Parse.try broadcastParser
     _ <- Parse.newline
     case IP.decode (T.pack ip) :: Maybe IPv4 of
         Just ip' ->
             return $ IIIPv4 IfIPv4Detail
                 { ifIPv4IP          = ip'
                 , ifIPv4Netmask     = IPR.normalize $ IPv4Range ip' (netmaskToInt netmask)
-                , ifIPv4Broadcast   = fmap T.pack broadcast >>= IP.decode
+                , ifIPv4Broadcast   = broadcast
                 , ifIPv4Routes      = Nothing
                 , ifIPv4Lease       = Nothing
                 }
@@ -356,6 +349,16 @@ netmaskToInt t
     | t == "0xffffff00" = 24
     | t == "0xffffffff" = 32
     | otherwise = 32
+
+broadcastParser :: Parse.Parser IPv4
+broadcastParser = do
+    Parse.whiteSpace
+    _ <- Parse.text "broadcast"
+    Parse.whiteSpace
+    broadcast <- Parse.some $ Parse.noneOf [' ', '\n']
+    case IP.decode $ T.pack broadcast of
+        Just ip -> return ip
+        Nothing -> Parse.raiseErr $ Parse.failed "couldn't parse broadcast ip"
 
 -- instance Show Interface where
 --     show i = "{name = " <> T.unpack (interface i) <> ", up = " <> show (up i) <> rd <> st <> wi <> "}"

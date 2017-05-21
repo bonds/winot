@@ -74,12 +74,12 @@ iteration oldWorld = do
         newInterfaceStats
         newRoutes
         newLeases
-        newFilterAnchors
 
     let newWorld = oldWorld
             { woLoopTimes   = mergeLoopTimes newTime $ woLoopTimes oldWorld
             , woInterfaces  = ifs
             , woProcesses   = newProcesses
+            , woFilterAnchors = newFilterAnchors
             }
     $(myLogTH) LLDevInfo [Tag "world"] $ Just $ show newWorld
     -- (re)load config
@@ -125,16 +125,16 @@ cleanUp tid = do
 mergeLoopTimes :: UnixTime -> [UnixTime] -> [UnixTime]
 mergeLoopTimes nt ots = take 2 $ nt : ots
 
-mergeInterfaceInfo :: [Interface] -> [Interface] -> [IfStats] -> [Route] -> [Lease] -> [FilterAnchor] -> IO [Interface]
-mergeInterfaceInfo [] _ _ _ _ _ = return []
-mergeInterfaceInfo (x:xs) oldInterfaces newStats newRoutes newLeases newFilterAnchors = do
-    newII <- mergeII x oldInterfaces newStats newRoutes newLeases newFilterAnchors
-    moreII <- mergeInterfaceInfo xs oldInterfaces newStats newRoutes newLeases newFilterAnchors
+mergeInterfaceInfo :: [Interface] -> [Interface] -> [IfStats] -> [Route] -> [Lease] -> IO [Interface]
+mergeInterfaceInfo [] _ _ _ _ = return []
+mergeInterfaceInfo (x:xs) oldInterfaces newStats newRoutes newLeases = do
+    newII <- mergeII x oldInterfaces newStats newRoutes newLeases
+    moreII <- mergeInterfaceInfo xs oldInterfaces newStats newRoutes newLeases
     return $ newII : moreII
   where
     -- keeping history even if bssid or network changed...hopefully that's good enough
-    mergeII :: Interface -> [Interface] -> [IfStats] -> [Route] -> [Lease] -> [FilterAnchor] -> IO Interface
-    mergeII i os ns nr nl fas = do
+    mergeII :: Interface -> [Interface] -> [IfStats] -> [Route] -> [Lease] -> IO Interface
+    mergeII i os ns nr nl = do
         newLock <- S.atomically S.newEmptyTMVar
         newReady <- S.atomically $ S.newTVar False
         return $ x
@@ -168,11 +168,6 @@ mergeInterfaceInfo (x:xs) oldInterfaces newStats newRoutes newLeases newFilterAn
                     , ifIPv4Lease = find (\y -> interface i == lsInterface y && interfaceSSID i == lsSSID y) nl
                     }
                 Nothing -> Nothing
-            , ifFilters           = case ifRDomain i of
-                Just rd -> case find (\y -> anName y == show rd) fas of
-                    Just fa -> Just $ anFilters fa
-                    Nothing -> Just []
-                Nothing -> Just []
             }
 
 findOldInterface :: Interface -> [Interface] -> Maybe Interface

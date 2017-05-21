@@ -17,32 +17,36 @@ import World
 import qualified Control.Concurrent as C
 import qualified Control.Monad.Logger as ML
 import qualified Control.Concurrent.STM as S
-import Data.List ((\\))
+import Data.List ((\\), elemIndex)
 import qualified Control.Concurrent.Thread.Delay as D
 import qualified Data.Text as T
 import Net.Types hiding (getIP)
 import qualified Net.IPv4.Text as IP
 
--- TODO: actually check that all the config for vether0 is correct and fix the broken parts only, as needed, including which physical interface to use for internet acess
+-- TODO: actually check that all the config for vether0 is correct and fix the broken parts only, as needed
+-- including which physical interface to use for internet acess
+-- TODO: delete extraneous filterAnchors, i.e. from removed interfaces
 checkRD0 :: [Interface] -> ML.LoggingT IO Bool
 checkRD0 ifs =
     case find (\x -> interface x == "vether0") ifs of
         Just i ->
             if isJust (ifRDomain i) then fixIt
-            else return True
+            else case ifIPv4Detail i of
+                Just ipd ->
+                    if Just (ifIPv4IP ipd) == IP.decode "192.168.211.1" then return True
+                    else fixIt
+                Nothing -> fixIt
         Nothing ->fixIt
   where
     fixIt = do
         run LRAction "ifconfig vether0 inet 192.168.211.1/32"
         run LRAction "ifconfig vether0 rdomain 0"
-        run LRAction "ifconfig vether0 group stayd1r"
         run LRAction "route delete default"
         run LRAction "route add default 192.168.211.1"
         run LRAction "rcctl -f start unbound"
         return False
 
 -- make certain every physical device is in its own rdomain
--- TODO: make certain preferred devices are higher numbered, as the anchors are sorted, and whichever rules are last win
 checkRdomains :: [Interface] -> ML.LoggingT IO Bool
 checkRdomains ifs = do
     results <- helper True [] ifs
@@ -69,105 +73,142 @@ connect w i =
             gotLock <- liftIO $ S.atomically $ S.tryPutTMVar lock ()
             when gotLock $ do
                 _ <- liftIO $ C.forkIO $ runMyLogs $ do
-                    $(myLogTH) LLDevInfo [Tag "lock", Tag "got"] $ Just $ interface i
-                    helper w i
+                    $(myLogTH) LLDevInfo [Tag "lock", Tag "gotit", Tag (interface i)] Nothing
+                    checkAndFix w i
                     liftIO $ S.atomically $ S.takeTMVar lock
-                    $(myLogTH) LLDevInfo [Tag "lock", Tag "release"] $ Just $ interface i
+                    $(myLogTH) LLDevInfo [Tag "lock", Tag "released", Tag (interface i)] Nothing
                     return ()
                 return ()
         Nothing -> return ()
-  where
-    helper w' i'
-      | ifdClass (ifDriver i') == ICwireless = connectWireless w' i'
-      | otherwise = do
-        $(myLogTH) LLDevInfo [Tag "connect", Tag "badclass"] $ Just $ "unimplemented interface class: " <> show (ifDriver i')
-        return ()
 
-connectWireless :: World -> Interface -> ML.LoggingT IO ()
-connectWireless world wif
-    | not (rdomainOK wif) = do
-        $(myLogTH) LLDevInfo [Tag "cw", Tag "badwifi"] $ Just "incorrect rdomain"
-        setReady wif False
-    | not (upOK wif) = do
-        $(myLogTH) LLDevInfo [Tag "cw", Tag "badwifi"] $ Just "interface down"
-        setReady wif False
-        bu <- bringIfUp wif
-        when (wasSuccess bu) $ connectWireless world
-            wif { ifStatus = (ifStatus wif) { ifUp = True } }
-    | not (nwidOK wif) || not (wpakeyOK wif) || not (strengthOK wif) = do
-        $(myLogTH) LLDevInfo [Tag "cw", Tag "badwifi"] $ Just "bad link"
-        setReady wif False
-        _ <- scanAndConnect wif
-        getIP wif
-        fixNAT wif
-        return ()
-        -- sac <- scanAndConnect wif
-        -- when sac $ connectWireless wif
-        --     { ifWirelessDetail = Just IfWirelessDetail
-        --         { ifSSID = Just "fakeonetopasstest"
-        --         , ifBSSID = Nothing
-        --         , ifStrengthHistory = []
-        --         , ifNetworks = WirelessNetworks {wnLastScan = Nothing, wnNetworks = []}
-        --         }
-        --     }
-    | not (ipOK wif) = do
-        $(myLogTH) LLDevInfo [Tag "cw", Tag "badwifi"] $ Just "missing ip"
-        setReady wif False
-        getIP wif
-    | not (gatewayOK wif) = do
-        $(myLogTH) LLDevInfo [Tag "cw", Tag "badwifi"] $ Just "bad gateway"
-        setReady wif False
-        fixGateway wif
+checkAndFix :: World -> Interface -> ML.LoggingT IO ()
+checkAndFix w i
+    | not (rdomainOK i) = do
+        $(myLogTH) LLDevInfo
+            [Tag "connect", Tag "bad", Tag (interface i)] $
+            Just "incorrect rdomain"
+        setReady w i False
+    | not (upOK i) = do
+        $(myLogTH) LLDevInfo
+            [Tag "connect", Tag "bad", Tag (interface i)] $
+            Just "interface down"
+        setReady w i False
+        bu <- bringIfUp i
+        when (wasSuccess bu) $ checkAndFix w
+            i { ifStatus = (ifStatus i) { ifUp = True } }
+    | not(wireOK i) =
+        $(myLogTH) LLDevInfo
+            [Tag "connect", Tag "bad", Tag (interface i)] $
+            Just "not plugged into hub"
+    | ifdClass (ifDriver i) == ICwireless
+    && (not (nwidOK i) || not (wpakeyOK i) || not (strengthOK i)) = do
+        $(myLogTH) LLDevInfo
+            [Tag "connect", Tag "bad", Tag (interface i)] $
+            Just "bad link"
+        setReady w i False
+        sac <- scanAndConnect i
+        when sac $ do -- these always need to happen after getting the link, so don't wait until next loop
+            getIP i
+            fixNAT w i
+            return ()
+    | not (ipOK i) = do
+        $(myLogTH) LLDevInfo
+            [Tag "connect", Tag "bad", Tag (interface i)] $
+            Just "missing ip"
+        setReady w i False
+        getIP i
+    | not (gatewayOK i) = do
+        $(myLogTH) LLDevInfo
+            [Tag "connect", Tag "bad", Tag (interface i)] $
+            Just "bad gateway"
+        setReady w i False
+        fixGateway i
     | otherwise = do
-        internetOK wif >>= remainingChecks
-        return ()
-  where
-    rdomainOK = isJust . ifRDomain
-    setReady :: Interface -> Bool -> ML.LoggingT IO ()
-    setReady i s = case ifReady $ ifStatus i of
-        Just ir -> liftIO $ atomWrite ir s
-        Nothing -> return ()
-    upOK = ifUp . ifStatus
-    bringIfUp i = runEC LRAction $ "ifconfig " <> interface i <> " up"
-    nwidOK i = case ifWirelessDetail i of
-        Just iwd -> case ifSSID iwd of
-            Just _ -> True
-            Nothing -> False
-        Nothing -> False
-    wpakeyOK _ = True -- TODO: check that the WPAKEY exists unless we're using an open network
-    strengthOK _ = True -- TODO: actually check strength
-    remainingChecks iok
-        | not iok = do
-            $(myLogTH) LLDevInfo [Tag "cw", Tag "badwifi"] $ Just "cannot ping internet"
-            setReady wif False
-        | not (natOK wif) = do
-            $(myLogTH) LLDevInfo [Tag "cw", Tag "badwifi"] $ Just "nat config is bad"
-            setReady wif False
-            fixNAT wif
-            -- connectWireless wif
-        | otherwise = do
-            $(myLogTH) LLDevInfo [Tag "cw"] $ Just "ok"
-            setReady wif True
+        iok <- internetOK i
+        checkAndFixInternet w i iok
+
+wireOK :: Interface -> Bool
+wireOK i = case ifStatusDetail (ifStatus i) of
+    Just s -> s /= "no carrier"
+    Nothing -> True
+
+checkAndFixInternet :: World -> Interface -> Bool -> ML.LoggingT IO ()
+checkAndFixInternet w i iok
+    | not iok = do
+        $(myLogTH) LLDevInfo
+            [Tag "connect", Tag "bad", Tag (interface i)] $
+            Just "cannot ping internet"
+        setReady w i False
+    | not (natOK w i) = do
+        $(myLogTH) LLDevInfo
+            [Tag "connect", Tag "bad", Tag (interface i)] $
+            Just "nat config is bad"
+        setReady w i False
+        fixNAT w i
+    | otherwise = do
+        $(myLogTH) LLDevInfo
+            [Tag "connect", Tag (interface i)] $
+            Just "ok"
+        setReady w i True
 
     -- TODO: check that unbound is up
 
-natOK :: Interface ->Bool
-natOK i = case ifRDomain i of
-    Just rd -> case ifFilters i of
-        Just iff -> case ifIPv4Detail i of
-            Just ipd ->
-                  FiNATToPrivate
-                    { npNetwork = ifIPv4Netmask ipd
-                    , npRTable  = rd
-                    , npGateway = ifIPv4IP ipd
-                    } `elem` iff
-                && FiNATToInternet
-                    { niGroup   = "stayd" <> show rd <> "r"
-                    , niRTable  = rd
-                    , niGateway = ifIPv4IP ipd
-                    } `elem` iff
-            Nothing -> False
+setReady :: World -> Interface -> Bool -> ML.LoggingT IO ()
+setReady w i s =
+    if s then
+        case ifReady $ ifStatus i of
+            Just ir -> liftIO $ atomWrite ir s
+            Nothing ->clearNAT w i
+    else
+        clearNAT w i
+
+rdomainOK :: Interface -> Bool
+rdomainOK = isJust . ifRDomain
+
+upOK :: Interface -> Bool
+upOK = ifUp . ifStatus
+
+bringIfUp :: Interface -> ML.LoggingT IO ExitCode
+bringIfUp i' = runEC LRAction $ "ifconfig " <> interface i' <> " up"
+
+nwidOK :: Interface -> Bool
+nwidOK i' = case ifWirelessDetail i' of
+    Just iwd -> case ifSSID iwd of
+        Just _ -> True
         Nothing -> False
+    Nothing -> False
+
+wpakeyOK :: Interface -> Bool
+wpakeyOK _ = True -- TODO: check that the WPAKEY exists unless we're using an open network
+
+strengthOK :: Interface -> Bool
+strengthOK _ = True -- TODO: actually check strength
+
+myFilters :: World -> Interface -> [Filter]
+myFilters w i = case decidePriority w i of
+    Just pri -> case find (\x -> anName x == pri) $ woFilterAnchors w of
+        Just fa -> anFilters fa
+        Nothing -> []
+    Nothing -> []
+
+natOK :: World -> Interface ->Bool
+natOK w i = case ifRDomain i of
+    Just rd -> rd >= 1 && rd <= 26 && -- so we don't go beyond the letters A and Z in the group name
+        case ifIPv4Detail i of
+            Just ipd ->case interfaceGroup i of
+                Just ig ->
+                      FiNATToPrivate
+                        { npNetwork = ifIPv4Netmask ipd
+                        , npRTable  = rd
+                        , npGateway = ifIPv4IP ipd
+                        } `elem` myFilters w i
+                    && FiNATToInternet
+                        { niGroup   = ig
+                        , niRTable  = rd
+                        , niGateway = ifIPv4IP ipd
+                        } `elem` myFilters w i
+                Nothing -> False
+            Nothing -> False
     Nothing -> False
 
 fixGateway :: Interface -> ML.LoggingT IO ()
@@ -201,17 +242,23 @@ scanAndConnect wif = do
         Just pn ->
             case wnSSID pn of
                 Just nwid -> do
-                    $(myLogTH) LLDevInfo [Tag "cw"] $ Just $ "preferred network is " <> nwid
+                    $(myLogTH) LLDevInfo [Tag "connect"] $ Just $ "preferred network is " <> nwid
                     case wnPassword pn of
                         Just wpakey -> connectToWN wif nwid wpakey
                         Nothing -> do
-                            $(myLogTH) LLDevInfo [Tag "cw", Tag "badwifi"] $ Just "missing password"
+                            $(myLogTH) LLDevInfo
+                                [Tag "connect", Tag "bad"] $
+                                Just "missing password"
                             return False
                 Nothing -> do
-                    $(myLogTH) LLDevInfo [Tag "cw", Tag "badwifi"] $ Just "missing SSID"
+                    $(myLogTH) LLDevInfo
+                        [Tag "connect", Tag "bad"] $
+                        Just "missing SSID"
                     return False
         Nothing -> do
-            $(myLogTH) LLDevInfo [Tag "cw", Tag "badwifi"] $ Just "no familiar networks"
+            $(myLogTH) LLDevInfo
+                [Tag "connect", Tag "bad"] $
+                Just "no familiar networks"
             liftIO $ D.delay $ 15*1000000
             return False
 
@@ -224,22 +271,41 @@ connectToWN i n w = do
 getIP :: Interface -> ML.LoggingT IO ()
 getIP i = run LRAction $ "dhclient " <> interface i
 
-fixNAT :: Interface -> ML.LoggingT IO ()
-fixNAT i = do
+clearNAT :: World -> Interface -> ML.LoggingT IO ()
+clearNAT w i = case decidePriority w i of
+    Just pri -> run LRAction $ "pfctl -a stayd/" <> pri <> " -F rules"
+    Nothing -> return ()
+
+fixNAT :: World -> Interface -> ML.LoggingT IO ()
+fixNAT w i = do
     $(myLogTH) LLDevInfo [Reason LRAction, Tag "youarehere"] Nothing
     case ifRDomain i of
+        Just r ->case interfaceGroup i of
+            Just ig -> case decidePriority w i of
+                Just pri -> do
+                    run LRAction $ "pfctl -a stayd/" <> pri <> " -F rules"
+                    run LRAction $
+                          "echo \""
+                        <> "match out on " <> ig
+                            <> " inet from any to ! <private> rtable " <> show r
+                            <> " nat-to " <> interface i <> ":0\n"
+                        <> "match out to "
+                            <> interface i <> ":network"
+                            <> " nat-to " <> interface i <> ":0 rtable " <> show r
+                        <> "\" | pfctl -a stayd/" <> pri <> " -f -"
+                Nothing -> return ()
+            Nothing -> return ()
         Nothing -> return ()
-        Just r -> do
-            run LRAction $ "pfctl -a stayd/" <> show r <> " -F rules"
-            run LRAction $
-                  "echo \""
-                <> "match out on stayd" <> show r <> "r" -- OpenBSD says groups may not end in digits
-                    <> " inet from any to ! <private> rtable " <> show r
-                    <> " nat-to " <> interface i <> ":0\n"
-                <> "match out to "
-                    <> interface i <> ":network"
-                    <> " nat-to " <> interface i <> ":0 rtable " <> show r
-                <> "\" | pfctl -a stayd/" <> show r <> " -f -"
+
+interfaceGroup :: Interface -> Maybe Text
+interfaceGroup _ = Just "vether0"
+
+-- interfaceGroup :: Interface -> Maybe Text
+-- interfaceGroup i = case ifRDomain i of
+--     Just r -> if r >= 1 && r <= 26
+--         then Just $ "stayd" <> T.pack [chr(ord 'A' + fromIntegral r - 1)]
+--         else Nothing
+--     Nothing -> Nothing
 
 internetOK :: Interface -> ML.LoggingT IO Bool
 internetOK i =
@@ -273,6 +339,45 @@ gatewayOK i = case defaultGateway i of
             Nothing -> False
         Nothing -> False
     Nothing -> False
+
+decideGroup :: World -> ML.LoggingT IO (Maybe Text)
+decideGroup w = do
+    ifs <- liftIO $ filterM isReady $ woInterfaces w
+    case lastMay $ sortOn fst $ addPriority w ifs of
+        Just pai -> case ifRDomain $ snd pai of
+            Just rd ->return $ Just $ show rd <> "rd"
+            Nothing -> return Nothing
+        Nothing -> return Nothing
+  where
+    isReady i = case ifReady $ ifStatus i of
+        Just r -> atomRead r
+        Nothing -> return False
+    addPriority w' = map (\x -> (decidePriority w' x, x))
+
+decidePriority :: World -> Interface -> Maybe Text
+decidePriority w i
+    | ifdClass (ifDriver i) == ICmobile =
+        case elemIndex i mobileIfs of
+            Just ifs -> Just $ "1" <> T.pack [chr(ord 'A' + ifs)]
+            Nothing -> Nothing
+    | ifdClass (ifDriver i) == ICwireless =
+        case elemIndex i wirelessIfs of
+            Just ifs -> Just $ "2" <> T.pack [chr(ord 'A' + ifs)]
+            Nothing -> Nothing
+    | ifdClass (ifDriver i) == ICusb =
+        case elemIndex i usbIfs of
+            Just ifs -> Just $ "3" <> T.pack [chr(ord 'A' + ifs)]
+            Nothing -> Nothing
+    | ifdClass (ifDriver i) == ICpci =
+        case elemIndex i pciIfs of
+            Just ifs -> Just $ "4" <> T.pack [chr(ord 'A' + ifs)]
+            Nothing -> Nothing
+    | otherwise = Nothing
+  where
+    mobileIfs = filter (\x -> ifdClass (ifDriver x) == ICmobile) $ woInterfaces w
+    wirelessIfs = filter (\x -> ifdClass (ifDriver x) == ICwireless) $ woInterfaces w
+    usbIfs = filter (\x -> ifdClass (ifDriver x) == ICusb) $ woInterfaces w
+    pciIfs = filter (\x -> ifdClass (ifDriver x) == ICpci) $ woInterfaces w
 
 -- add NAT rules from vether0 to this connection
 -- create ipsec tunnel

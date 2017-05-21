@@ -5,6 +5,7 @@ module World where
 import Protolude
 import Status.Process
 import Status.Interface
+import Status.Filter
 import qualified GHC.Int as G
 import Data.UnixTime (UnixTime)
 -- import Util.Misc
@@ -16,6 +17,7 @@ data World = World
     , woLoopTimes         :: [UnixTime]
     , woInterfaces        :: [Interface]
     , woProcesses         :: [Process]
+    , woFilterAnchors     :: [FilterAnchor]
     } deriving Show
 
 data Config = Config
@@ -32,4 +34,5 @@ initialWorld = World
     , woLoopTimes         = []
     , woInterfaces        = []
     , woProcesses         = []
+    , woFilterAnchors     = []
     }

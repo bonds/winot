@@ -78,7 +78,7 @@ anchorParser = do
     Parse.whiteSpace
     _ <- Parse.char '{'
     Parse.whiteSpace
-    filters <- Parse.some filterParser
+    filters <- Parse.many filterParser
     Parse.whiteSpace
     _ <- Parse.char '}'
     Parse.whiteSpace
