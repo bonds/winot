@@ -319,7 +319,7 @@ mediaParser = do
     _ <- Parse.newline
     return $ IIMedia IfMediaDetail
         { ifmMedia          = T.pack media
-        , ifmModePreference = T.pack preference
+        , ifmModePreference = T.strip $ T.pack preference
         , ifmModeActual     = fmap T.pack actual
         }
 

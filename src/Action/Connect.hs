@@ -343,11 +343,15 @@ scanAndConnect i = do
             _ <- bringIfDown i -- restart interface, sometimes it helps
             return False
 
+-- TODO: 11n and 11g support is unreliable, use 11a instead
 modeOK :: Interface -> Bool
-modeOK _ = True
+modeOK i = case ifMediaDetail i of
+    Just ifmd -> ifmModePreference ifmd == "autoselect mode 11a"
+    Nothing -> False
 
+-- TODO: 11n and 11g support is unreliable, use 11a instead
 fixMode :: Interface -> ML.LoggingT IO ()
-fixMode _ = return ()
+fixMode i = run LRAction $ "ifconfig " <> interface i <> " mode 11a"
 
 connectToWN :: Interface -> Text -> Text -> ML.LoggingT IO Bool
 connectToWN i n w = do
