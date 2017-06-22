@@ -23,28 +23,91 @@ import qualified Data.Text as T
 import Net.Types hiding (getIP)
 import qualified Net.IPv4.Text as IP
 
--- TODO: actually check that all the config for vether0 is correct and fix the broken parts only, as needed
--- including which physical interface to use for internet acess
 -- TODO: delete extraneous filterAnchors, i.e. from removed interfaces
-checkRD0 :: [Interface] -> ML.LoggingT IO Bool
-checkRD0 ifs =
-    case find (\x -> interface x == "vether0") ifs of
-        Just i ->
-            if isJust (ifRDomain i) then fixIt
-            else case ifIPv4Detail i of
-                Just ipd ->
-                    if Just (ifIPv4IP ipd) == IP.decode "192.168.211.1" then return True
-                    else fixIt
-                Nothing -> fixIt
-        Nothing ->fixIt
+-- TODO: lock down traffic via PF so we don't leak from RD0 or others
+-- TODO: delete PF entries for missing interfaces, probably should manage PF entries separately from interfaces entirely
+-- TODO: urndis driver should be lumped with mobile instead of with PCI devs for prioritization purposes
+checkAndFixRD0 :: World -> ML.LoggingT IO Bool
+checkAndFixRD0 w =
+    case find (\x -> interface x == "vether0") (woInterfaces w) of
+        Just i -> checkAndFixVE0 i
+        Nothing -> do
+            $(myLogTH) LLDevInfo
+                [Tag "connect", Tag "bad"] $
+                Just "missing vether0"
+            createVE0
+            return False
+            -- if result then checkAndFixVE0 w i else return False
+
+checkAndFixVE0 :: Interface -> ML.LoggingT IO Bool
+checkAndFixVE0 i =
+    case ifRDomain i of
+        Nothing -> checkAndFixVE0IP i
+        Just _ -> do
+            result <- runEC LRAction "ifconfig vether0 rdomain 0"
+            if wasSuccess result then
+                checkAndFixVE0IP i
+            else do
+                $(myLogTH) LLDevInfo
+                    [Tag "connect", Tag "bad", Tag (interface i)] $
+                    Just "couldn't fix rdomain on vether0"
+                return False
+
+checkAndFixVE0IP :: Interface -> ML.LoggingT IO Bool
+checkAndFixVE0IP i =
+    case ifIPv4Detail i of
+        Just ipd ->
+            if Just (ifIPv4IP ipd) == IP.decode "192.168.211.1"
+            then checkAndFixVE0Gateway i else fixIt
+        Nothing -> fixIt
   where
     fixIt = do
-        run LRAction "ifconfig vether0 inet 192.168.211.1/32"
-        run LRAction "ifconfig vether0 rdomain 0"
-        run LRAction "route delete default"
-        run LRAction "route add default 192.168.211.1"
-        run LRAction "rcctl -f start unbound"
-        return False
+        result <- runEC LRAction "ifconfig vether0 inet 192.168.211.1/32"
+        if wasSuccess result then
+            checkAndFixVE0Gateway i
+        else do
+            $(myLogTH) LLDevInfo
+                [Tag "connect", Tag "bad", Tag (interface i)] $
+                Just "couldn't fix vether0 ip"
+            return False
+
+checkAndFixVE0Gateway :: Interface -> ML.LoggingT IO Bool
+checkAndFixVE0Gateway i =
+    case ifIPv4Detail i of
+        Just ipd -> case defaultGateway i of
+            Just dg ->
+                if dg == ifIPv4IP ipd
+                then checkAndFixDNS else fixIt ipd
+            Nothing -> fixIt ipd
+        Nothing -> do
+            $(myLogTH) LLDevInfo
+                [Tag "connect", Tag "bad", Tag (interface i)] $
+                Just "missing vether0 ip"
+            return False
+  where
+    fixIt ipd' = do
+        removeDefaultRoutes i
+        result <- runEC LRAction $ "route add default " <> IP.encode (ifIPv4IP ipd')
+        if wasSuccess result then
+            checkAndFixDNS
+        else do
+            $(myLogTH) LLDevInfo
+                [Tag "connect", Tag "bad", Tag (interface i)] $
+                Just "couldn't fix rd0 gateway"
+            return False
+
+-- TODO: implement this properly
+checkAndFixDNS :: ML.LoggingT IO Bool
+checkAndFixDNS = return True
+    -- run LRAction "rcctl -f start unbound"
+
+createVE0 :: ML.LoggingT IO ()
+createVE0 = do
+    run LRAction "ifconfig vether0 inet 192.168.211.1/32"
+    run LRAction "ifconfig vether0 rdomain 0"
+    run LRAction "route delete default"
+    run LRAction "route add default 192.168.211.1"
+    run LRAction "rcctl -f start unbound"
 
 -- make certain every physical device is in its own rdomain
 checkRdomains :: [Interface] -> ML.LoggingT IO Bool
@@ -96,10 +159,11 @@ checkAndFix w i
         bu <- bringIfUp i
         when (wasSuccess bu) $ checkAndFix w
             i { ifStatus = (ifStatus i) { ifUp = True } }
-    | not(wireOK i) =
+    | not(wireOK i) = do
         $(myLogTH) LLDevInfo
             [Tag "connect", Tag "bad", Tag (interface i)] $
             Just "not plugged into hub"
+        setReady w i False
     | ifdClass (ifDriver i) == ICwireless
     && (not (nwidOK i) || not (wpakeyOK i) || not (strengthOK i)) = do
         $(myLogTH) LLDevInfo
@@ -125,6 +189,7 @@ checkAndFix w i
         fixGateway i
     | otherwise = do
         iok <- internetOK i
+        -- TODO: check that bandwidth usage is low before believing dropped pings
         checkAndFixInternet w i iok
 
 wireOK :: Interface -> Bool
@@ -171,6 +236,9 @@ upOK = ifUp . ifStatus
 bringIfUp :: Interface -> ML.LoggingT IO ExitCode
 bringIfUp i' = runEC LRAction $ "ifconfig " <> interface i' <> " up"
 
+bringIfDown :: Interface -> ML.LoggingT IO ExitCode
+bringIfDown i' = runEC LRAction $ "ifconfig " <> interface i' <> " down"
+
 nwidOK :: Interface -> Bool
 nwidOK i' = case ifWirelessDetail i' of
     Just iwd -> case ifSSID iwd of
@@ -195,7 +263,7 @@ natOK :: World -> Interface ->Bool
 natOK w i = case ifRDomain i of
     Just rd -> rd >= 1 && rd <= 26 && -- so we don't go beyond the letters A and Z in the group name
         case ifIPv4Detail i of
-            Just ipd ->case interfaceGroup i of
+            Just ipd -> case interfaceGroup i of
                 Just ig ->
                       FiNATToPrivate
                         { npNetwork = ifIPv4Netmask ipd
@@ -215,14 +283,19 @@ fixGateway :: Interface -> ML.LoggingT IO ()
 fixGateway i =
     case ifRDomain i of
         Just rd -> case ifIPv4Detail i of
-            Just ipd -> case ifIPv4Lease ipd of
-                Just l -> do
+            Just ipd -> if ifdClass (ifDriver i) == ICmobile then do
                     removeDefaultRoutes i
-                    run LRAction $ "route -T " <> show rd <> " add default " <> lsRouter l
-                Nothing -> return ()
+                    run LRAction $ "route -T " <> show rd <> " add default " <> IP.encode (ifIPv4IP ipd)
+                else
+                    case ifIPv4Lease ipd of
+                    Just l -> do
+                        removeDefaultRoutes i
+                        run LRAction $ "route -T " <> show rd <> " add default " <> lsRouter l
+                    Nothing -> return ()
             Nothing -> return ()
         Nothing -> return ()
 
+-- TODO: have this actually delete all the default routes, not just one of them
 removeDefaultRoutes :: Interface -> ML.LoggingT IO ()
 removeDefaultRoutes i = helper $ defaultGateways i
   where
@@ -236,31 +309,45 @@ removeDefaultRoutes i = helper $ defaultGateways i
             Nothing -> return ()
 
 scanAndConnect :: Interface -> ML.LoggingT IO Bool
-scanAndConnect wif = do
+scanAndConnect i = do
+    unless (modeOK i) (fixMode i)
     wns <- wirelessNetworks
-    case preferredNetwork wns of
-        Just pn ->
-            case wnSSID pn of
-                Just nwid -> do
-                    $(myLogTH) LLDevInfo [Tag "connect"] $ Just $ "preferred network is " <> nwid
-                    case wnPassword pn of
-                        Just wpakey -> connectToWN wif nwid wpakey
-                        Nothing -> do
-                            $(myLogTH) LLDevInfo
-                                [Tag "connect", Tag "bad"] $
-                                Just "missing password"
-                            return False
-                Nothing -> do
-                    $(myLogTH) LLDevInfo
-                        [Tag "connect", Tag "bad"] $
-                        Just "missing SSID"
-                    return False
-        Nothing -> do
+    case wnNetworks wns of
+        (_:_) -> case preferredNetwork wns of
+            Just pn ->
+                case wnSSID pn of
+                    Just nwid -> do
+                        $(myLogTH) LLDevInfo [Tag "connect"] $ Just $ "preferred network is " <> nwid
+                        case wnPassword pn of
+                            Just wpakey -> connectToWN i nwid wpakey
+                            Nothing -> do
+                                $(myLogTH) LLDevInfo
+                                    [Tag "connect", Tag "bad", Tag (interface i)] $
+                                    Just "missing password"
+                                return False
+                    Nothing -> do
+                        $(myLogTH) LLDevInfo
+                            [Tag "connect", Tag "bad", Tag (interface i)] $
+                            Just "missing SSID"
+                        return False
+            Nothing -> do
+                $(myLogTH) LLDevInfo
+                    [Tag "connect", Tag "bad", Tag (interface i)] $
+                    Just "no familiar networks"
+                liftIO $ D.delay $ 15*1000000
+                return False
+        [] -> do
             $(myLogTH) LLDevInfo
-                [Tag "connect", Tag "bad"] $
-                Just "no familiar networks"
-            liftIO $ D.delay $ 15*1000000
+                [Tag "connect", Tag "bad", Tag (interface i)] $
+                Just "no networks found, interface in a bad state?"
+            _ <- bringIfDown i -- restart interface, sometimes it helps
             return False
+
+modeOK :: Interface -> Bool
+modeOK _ = True
+
+fixMode :: Interface -> ML.LoggingT IO ()
+fixMode _ = return ()
 
 connectToWN :: Interface -> Text -> Text -> ML.LoggingT IO Bool
 connectToWN i n w = do
@@ -269,11 +356,25 @@ connectToWN i n w = do
     waitForConnection i
 
 getIP :: Interface -> ML.LoggingT IO ()
-getIP i = run LRAction $ "dhclient " <> interface i
+getIP i =
+    if ifdName (ifDriver i) == "umb" then do
+        -- umb has two 'ups' the one on the first line that all IFs have and the
+        -- up on the status line...to give umb an IP, get the status line to
+        -- be 'active' by bringing umb up even if its already up on the first
+        -- line...don't use dhclient, that will just generate an error
+        _ <- bringIfUp i
+        return ()
+    else do -- TODO: this is probably not the right action for many other drivers
+        run LRAction $ "dhclient " <> interface i
+        return ()
 
 clearNAT :: World -> Interface -> ML.LoggingT IO ()
 clearNAT w i = case decidePriority w i of
-    Just pri -> run LRAction $ "pfctl -a stayd/" <> pri <> " -F rules"
+    Just pri -> case find (\x -> pri == anName x) (woFilterAnchors w) of
+        Just fa -> case anFilters fa of
+            [] -> return ()
+            _ -> run LRAction $ "pfctl -a stayd/" <> pri <> " -F rules"
+        Nothing -> return ()
     Nothing -> return ()
 
 fixNAT :: World -> Interface -> ML.LoggingT IO ()
@@ -334,9 +435,12 @@ ipOK i = isJust $ ifIPv4Detail i
 gatewayOK :: Interface -> Bool
 gatewayOK i = case defaultGateway i of
     Just dg -> case ifIPv4Detail i of
-        Just ipd -> case ifIPv4Lease ipd of
-            Just l -> Just dg == IP.decode (lsRouter l)
-            Nothing -> False
+        Just ipd -> if ifdClass (ifDriver i) == ICmobile then
+            dg == ifIPv4IP ipd
+        else
+            case ifIPv4Lease ipd of
+                Just l -> Just dg == IP.decode (lsRouter l)
+                Nothing -> False
         Nothing -> False
     Nothing -> False
 
@@ -379,7 +483,6 @@ decidePriority w i
     usbIfs = filter (\x -> ifdClass (ifDriver x) == ICusb) $ woInterfaces w
     pciIfs = filter (\x -> ifdClass (ifDriver x) == ICpci) $ woInterfaces w
 
--- add NAT rules from vether0 to this connection
 -- create ipsec tunnel
 -- create gre tunnel
 -- add route to vpn server

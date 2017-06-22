@@ -82,6 +82,8 @@ routesLineParser rt = do
     Parse.whiteSpace
     _ <- Parse.some $ Parse.notChar ' '
     Parse.whiteSpace
+    _ <- Parse.optional $ Parse.char 'L'
+    Parse.whiteSpace
     _ <- Parse.integer
     Parse.whiteSpace
     routeInterface' <- Parse.some $ Parse.noneOf [' ', '\n']

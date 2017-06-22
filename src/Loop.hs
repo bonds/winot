@@ -82,9 +82,8 @@ iteration oldWorld = do
             , woFilterAnchors = newFilterAnchors
             }
     $(myLogTH) LLDevInfo [Tag "world"] $ Just $ show newWorld
-    -- (re)load config
-    -- choose route
-    c1 <- checkRD0 $ woInterfaces newWorld
+
+    c1 <- checkAndFixRD0 newWorld
     c2 <- checkRdomains $ woInterfaces newWorld
     when (c1 && c2) $
         mapM_ (connect newWorld) $ connectableInterfaces $ woInterfaces newWorld

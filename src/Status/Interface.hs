@@ -21,6 +21,8 @@ import qualified Text.Trifecta as Parse
 import Net.Types hiding (getIPv4)
 import qualified Net.IPv4.Text as IP
 import qualified Net.IPv4.Range as IPR
+import qualified Numeric as N
+import qualified Data.Char as DC
 
 default (Text, Integer, Double)
 
@@ -33,6 +35,7 @@ data Interface = Interface
     , ifWirelessDetail    :: Maybe IfWirelessDetail
     , ifIPv4Detail        :: Maybe IfIPv4Detail
     , ifLock              :: Maybe (S.TMVar ())
+    , ifMediaDetail       :: Maybe IfMediaDetail
     } deriving (Show, Eq)
 
 data IfDriver = IfDriver
@@ -87,17 +90,25 @@ data WirelessAccessPoint = WirelessAccessPoint
 data IfIPv4Detail = IfIPv4Detail
     { ifIPv4IP            :: IPv4
     , ifIPv4Netmask       :: IPv4Range
+    , ifIPv4Peer          :: Maybe IPv4
     , ifIPv4Broadcast     :: Maybe IPv4
     , ifIPv4Routes        :: Maybe [Route]
     , ifIPv4Lease         :: Maybe Lease
+    } deriving (Show, Eq)
+
+data IfMediaDetail = IfMediaDetail
+    { ifmMedia            :: Text
+    , ifmModePreference   :: Text
+    , ifmModeActual       :: Maybe Text
     } deriving (Show, Eq)
 
 data InterfaceInfo =
       IIWD IfWirelessDetail
     | IIIPv4 IfIPv4Detail
     | IIStatus Text
+    | IIMedia IfMediaDetail
     | IIIgnored
-    deriving Show
+    deriving (Show, Eq)
 
 -- TODO: prefer 5ghz networks over 2ghz as long as they are above a certain strength
 preferredNetwork :: WirelessNetworks -> Maybe WirelessNetwork
@@ -208,6 +219,7 @@ interfaceParser time ds = do
         $   Parse.try (wirelessParser time)
         <|> Parse.try ipv4Parser
         <|> Parse.try statusParser
+        <|> Parse.try mediaParser
         <|> unfamiliarLineParser
     return Interface
         { ifDriver            = IfDriver
@@ -225,6 +237,7 @@ interfaceParser time ds = do
         , ifWirelessDetail    = getWireless therest
         , ifLock              = Nothing
         , ifIPv4Detail        = getIPv4 therest
+        , ifMediaDetail       = getMedia therest
         }
 
   where
@@ -234,6 +247,7 @@ interfaceParser time ds = do
         | d `elem` classDrivers ICpci      = ICpci
         | d `elem` classDrivers ICusb      = ICusb
         | d `elem` classDrivers ICwireless = ICwireless
+        | d `elem` classDrivers ICmobile   = ICmobile
         | d `elem` classDrivers ICvirtual  = ICvirtual
         | otherwise                   = ICunknown
 
@@ -255,6 +269,11 @@ interfaceParser time ds = do
         Just (IIIPv4 w) -> Just w
         _               -> Nothing
 
+    getMedia :: [InterfaceInfo] -> Maybe IfMediaDetail
+    getMedia iis = case headMay $ filter isMedia iis of
+        Just (IIMedia w) -> Just w
+        _                -> Nothing
+
     isStatus (IIStatus _) = True
     isStatus _            = False
 
@@ -263,6 +282,9 @@ interfaceParser time ds = do
 
     isIPv4 (IIIPv4 _) = True
     isIPv4 _          = False
+
+    isMedia (IIMedia _) = True
+    isMedia _           = False
 
 unfamiliarLineParser :: Parse.Parser InterfaceInfo
 unfamiliarLineParser = do
@@ -280,6 +302,27 @@ statusParser = do
     _ <- Parse.newline
     return $ IIStatus $ T.pack status'
 
+mediaParser :: Parse.Parser InterfaceInfo
+mediaParser = do
+    Parse.whiteSpace
+    _ <- Parse.text "media:"
+    Parse.whiteSpace
+    media <- Parse.some $ Parse.noneOf ['\n', ' ']
+    Parse.whiteSpace
+    preference <- Parse.some $ Parse.noneOf ['\n', '(']
+    Parse.whiteSpace
+    actual <- Parse.optional $ do
+        _ <- Parse.char '('
+        a <- Parse.some $ Parse.notChar ')'
+        _ <- Parse.char ')'
+        return a
+    _ <- Parse.newline
+    return $ IIMedia IfMediaDetail
+        { ifmMedia          = T.pack media
+        , ifmModePreference = T.pack preference
+        , ifmModeActual     = fmap T.pack actual
+        }
+
 wirelessParser :: UnixTime -> Parse.Parser InterfaceInfo
 wirelessParser time = do
     Parse.whiteSpace
@@ -290,7 +333,7 @@ wirelessParser time = do
     case wn of
         Just wn' ->
             return $ IIWD IfWirelessDetail
-                { ifSSID         = wnSSID wn'
+                { ifSSID          = wnSSID wn'
                 , ifBSSID         = fmap wnBSSID $ head $ wnAPs wn'
                 , ifStrengthHistory   =
                     case fmap wnStrength $ head $ wnAPs wn' of
@@ -325,30 +368,51 @@ ipv4Parser = do
     _ <- Parse.text "inet"
     Parse.whiteSpace
     ip <- Parse.some $ Parse.notChar ' '
+    peer <- Parse.optional $ Parse.try peerParser
     Parse.whiteSpace
     _ <- Parse.text "netmask"
     Parse.whiteSpace
+    _ <- Parse.text "0x"
     netmask <- Parse.some $ Parse.noneOf [' ', '\n']
     broadcast <- Parse.optional $ Parse.try broadcastParser
     _ <- Parse.newline
     case IP.decode (T.pack ip) :: Maybe IPv4 of
-        Just ip' ->
-            return $ IIIPv4 IfIPv4Detail
-                { ifIPv4IP          = ip'
-                , ifIPv4Netmask     = IPR.normalize $ IPv4Range ip' (netmaskToInt netmask)
-                , ifIPv4Broadcast   = broadcast
-                , ifIPv4Routes      = Nothing
-                , ifIPv4Lease       = Nothing
-                }
+        Just ip' -> case netmaskToInt netmask of
+            Just nm ->
+                return $ IIIPv4 IfIPv4Detail
+                    { ifIPv4IP          = ip'
+                    , ifIPv4Netmask     = IPR.normalize $ IPv4Range ip' nm
+                    , ifIPv4Peer        = peer
+                    , ifIPv4Broadcast   = broadcast
+                    , ifIPv4Routes      = Nothing
+                    , ifIPv4Lease       = Nothing
+                    }
+            Nothing -> Parse.raiseErr $ Parse.failed "couldn't parse netmask"
         Nothing -> Parse.raiseErr $ Parse.failed "couldn't parse ip"
 
-netmaskToInt :: [Char] -> Word8
-netmaskToInt t
-    | t == "0xff000000" = 8
-    | t == "0xffff0000" = 16
-    | t == "0xffffff00" = 24
-    | t == "0xffffffff" = 32
-    | otherwise = 32
+netmaskToInt :: [Char] -> Maybe Word8
+netmaskToInt t =
+    case hexToInt "ffffffff" of
+        Just allFs-> case hexToInt t of
+            Just netmask ->
+                Just $ fromIntegral $
+                    32 - bitsNeeded (intToBin $ (allFs :: Int) - (netmask :: Int))
+            Nothing -> Nothing
+        Nothing -> Nothing
+  where
+    hexToInt = fmap fst . headMay . N.readHex -- TODO: readHex accepts non-hex characters, replace it with something less dumb
+    intToBin i = N.showIntAtBase 2 DC.intToDigit i ""
+    bitsNeeded c = sum $ mapMaybe (\x -> readMaybe [x]) c :: Int
+
+peerParser :: Parse.Parser IPv4
+peerParser = do
+    Parse.whiteSpace
+    _ <- Parse.text "-->"
+    Parse.whiteSpace
+    peer <- Parse.some $ Parse.noneOf [' ', '\n']
+    case IP.decode $ T.pack peer of
+        Just ip -> return ip
+        Nothing -> Parse.raiseErr $ Parse.failed "couldn't parse peer ip"
 
 broadcastParser :: Parse.Parser IPv4
 broadcastParser = do
@@ -379,7 +443,13 @@ drivers = do
     wireless <- wirelessIfDrivers
     virtual <- virtualIfDrivers
     let pci = wired \\ usb
-    return $ dlist ICpci pci ++ dlist ICusb usb ++ dlist ICwireless wireless ++ dlist ICvirtual virtual
+    let mobile = ["umb"]
+    return
+      $ dlist ICpci pci
+      ++ dlist ICusb usb
+      ++ dlist ICwireless wireless
+      ++ dlist ICvirtual virtual
+      ++ dlist ICmobile mobile
   where
     dlist ifd = map (\x -> IfDriver {ifdName = x, ifdClass = ifd})
 
@@ -574,10 +644,9 @@ wirelessNetworkParser ps = do
     Parse.whiteSpace
     bssid <- Parse.some $ Parse.notChar ' '
     Parse.whiteSpace
-    _ <- Parse.char '-'
-    strength <- Parse.integer
-    _ <- Parse.text "dBm"
+    strength <- Parse.try dbmStrength <|> percStrength
     Parse.whiteSpace
+    -- TODO: in the ifconfig line for a wireless interface, this will actually by wpakey and details, not speed as it is in the scan, need to correct this
     speed <- Parse.some $ Parse.notChar ' '
     Parse.whiteSpace
     _ <- Parse.many $ Parse.notChar '\n'
@@ -600,6 +669,15 @@ wirelessNetworkParser ps = do
                 Just wp' -> Just wp'
                 Nothing  -> Just "" -- this is an open network, not a missing password
             Nothing -> Nothing
+    dbmStrength = do
+        _ <- Parse.char '-'
+        strength <- Parse.integer
+        _ <- Parse.text "dBm"
+        return strength
+    percStrength = do
+        strength <- Parse.integer
+        _ <- Parse.char '%'
+        return strength
 
 wirelessScanParser :: UnixTime -> [WirelessPassword] -> Parse.Parser WirelessNetworks
 wirelessScanParser time ps = do
