@@ -146,6 +146,7 @@ connect w i =
 
 checkAndFix :: World -> Interface -> ML.LoggingT IO ()
 checkAndFix w i
+    -- | ifdClass (ifDriver i) == ICmobile = return ()
     | not (rdomainOK i) = do
         $(myLogTH) LLDevInfo
             [Tag "connect", Tag "bad", Tag (interface i)] $
@@ -173,7 +174,7 @@ checkAndFix w i
         sac <- scanAndConnect i
         when sac $ do -- these always need to happen after getting the link, so don't wait until next loop
             getIP i
-            fixNAT w i
+            -- fixNAT w i
             return ()
     | not (ipOK i) = do
         $(myLogTH) LLDevInfo
@@ -181,25 +182,73 @@ checkAndFix w i
             Just "missing ip"
         setReady w i False
         getIP i
+    -- TODO: using IPSEC+GRE leads to a hang after a few minutes under OpenBSD 6.1
+    -- | ifdClass (ifDriver i) == ICwireless = do
+    --     -- TODO: check that bandwidth usage is low before believing dropped pings
+    --     ok <- vpnReachable i
+    --     checkAndFixVPN w i ok
+    | otherwise = do
+        ok <- internetOK i
+        checkAndFixUnprotectedConnection w i ok
+
+checkAndFixVPN :: World -> Interface -> Bool -> ML.LoggingT IO ()
+checkAndFixVPN w i ok
+    | not ok = do
+        $(myLogTH) LLDevInfo
+            [Tag "connect", Tag "bad", Tag (interface i)] $
+            Just "cannot ping vpn server"
+        setReady w i False
+    | otherwise = do
+        ipsok <- ipsecOK i
+        checkAndFixIPSec w i ipsok
+
+checkAndFixIPSec :: World -> Interface -> Bool -> ML.LoggingT IO ()
+checkAndFixIPSec w i ok
+    | not ok = do
+        $(myLogTH) LLDevInfo
+            [Tag "connect", Tag "bad", Tag (interface i)] $
+            Just "cannot ping over ipsec tunnel"
+        setReady w i False
+        fixIpsec i
+    | otherwise = do
+        greok <- greOK i
+        checkAndFixGRE w i greok
+
+checkAndFixGRE :: World -> Interface -> Bool -> ML.LoggingT IO ()
+checkAndFixGRE w i ok
+    | not ok = do
+        $(myLogTH) LLDevInfo
+            [Tag "connect", Tag "bad", Tag (interface i)] $
+            Just "cannot ping over gre tunnel"
+        setReady w i False
+        fixGre i
+    | not (gatewayOK' w i) = do
+        $(myLogTH) LLDevInfo
+            [Tag "connect", Tag "bad", Tag (interface i)] $
+            Just "bad gateway"
+        setReady w i False
+        fixGateway' i
+    | not (natOK' w i) = do
+        $(myLogTH) LLDevInfo
+            [Tag "connect", Tag "bad", Tag (interface i)] $
+            Just "nat config is bad"
+        setReady w i False
+        fixNAT' w i
+    | otherwise = do
+        $(myLogTH) LLDevInfo
+            [Tag "connect", Tag (interface i)] $
+            Just "ok"
+        setReady w i True
+
+checkAndFixUnprotectedConnection :: World -> Interface -> Bool -> ML.LoggingT IO ()
+checkAndFixUnprotectedConnection w i ok
     | not (gatewayOK i) = do
         $(myLogTH) LLDevInfo
             [Tag "connect", Tag "bad", Tag (interface i)] $
             Just "bad gateway"
         setReady w i False
         fixGateway i
-    | otherwise = do
-        iok <- internetOK i
-        -- TODO: check that bandwidth usage is low before believing dropped pings
-        checkAndFixInternet w i iok
-
-wireOK :: Interface -> Bool
-wireOK i = case ifStatusDetail (ifStatus i) of
-    Just s -> s /= "no carrier"
-    Nothing -> True
-
-checkAndFixInternet :: World -> Interface -> Bool -> ML.LoggingT IO ()
-checkAndFixInternet w i iok
-    | not iok = do
+    | not ok = do
         $(myLogTH) LLDevInfo
             [Tag "connect", Tag "bad", Tag (interface i)] $
             Just "cannot ping internet"
@@ -217,6 +266,84 @@ checkAndFixInternet w i iok
         setReady w i True
 
     -- TODO: check that unbound is up
+
+ipsecOK :: Interface -> ML.LoggingT IO Bool
+ipsecOK i =
+    case ifRDomain i of
+        Just rd -> pingVia rd 5 $ "192.168.99." <> show (rd*2)
+        Nothing -> return False
+
+fixIpsec :: Interface -> ML.LoggingT IO ()
+fixIpsec i =
+    case ifRDomain i of
+        Just rd -> case idealDefaultGateway i of
+            Just ig -> do
+                run LRAction $ "pkill -T " <> show rd <> " iked"
+                run LRAction $ "route -T " <> show rd <> " exec ipsecctl -F"
+                run LRAction $ "route -T " <> show rd <> " delete " <> "104.238.182.194"
+                run LRAction $ "route -T " <> show rd <> " add " <> "104.238.182.194" <> " " <> IP.encode ig
+                run LRAction
+                    $ "ifconfig vether" <> show rd
+                    <> " "
+                    <> "192.168.99." <> show (rd*2+1) <> "/31"
+                    <> " "
+                    <> "rdomain " <> show rd
+                run LRAction $ "ifconfig enc" <> show rd <> " rdomain " <> show rd
+                run LRAction
+                    $ "route -T "
+                    <> show rd
+                    <> " exec iked -D NAME=wlan -D FROM=\"192.168.99."
+                    <> show (rd*2+1)
+                    <> "\" -D TO=\"192.168.99."
+                    <> show (rd*2)
+                    <> "\" -D NIC="
+                    <> interface i
+                    <> " -D RDOMAIN="
+                    <> show rd
+                    <> " -D SRCID=\"vpn"
+                    <> show rd
+                    <> "@maybe.ggr.com\" -D TAP=\"enc"
+                    <> show rd
+                    <> "\" -D PEER=\""
+                    <> "104.238.182.194"
+                    <> "\" -D DSTID=\"vpn.ggr.com\""
+            Nothing -> return ()
+        Nothing -> return ()
+
+greOK :: Interface -> ML.LoggingT IO Bool
+greOK i =
+    case ifRDomain i of
+        Just rd -> pingVia rd 3 $ "192.168.13." <> show (rd*2)
+        Nothing -> return False
+
+fixGre :: Interface -> ML.LoggingT IO ()
+fixGre i =
+    case ifRDomain i of
+        Just rd -> do
+            run LRAction "sysctl net.inet.gre.allow=1"
+            run LRAction $ "ifconfig gre" <> show rd <> " rdomain " <> show rd
+            run LRAction $ "ifconfig gre" <> show rd <> " 192.168.13." <> show (rd*2+1) <> "/31"
+            run LRAction
+                $ "ifconfig gre" <> show rd
+                <> " "
+                <> "192.168.13." <> show (rd*2+1) <> "/31"
+                <> " "
+                <> "192.168.13." <> show (rd*2)
+            run LRAction $ T.unwords
+                [ "ifconfig"
+                , "gre" <> show rd
+                , "tunnel"
+                , "192.168.99." <> show (rd*2+1)
+                , "192.168.99." <> show (rd*2)
+                , "tunneldomain"
+                , show rd
+                ]
+        Nothing -> return ()
+
+wireOK :: Interface -> Bool
+wireOK i = case ifStatusDetail (ifStatus i) of
+    Just s -> s /= "no carrier"
+    Nothing -> True
 
 setReady :: World -> Interface -> Bool -> ML.LoggingT IO ()
 setReady w i s =
@@ -279,6 +406,28 @@ natOK w i = case ifRDomain i of
             Nothing -> False
     Nothing -> False
 
+natOK' :: World -> Interface ->Bool
+natOK' w i = case ifRDomain i of
+    Just rd -> rd >= 1 && rd <= 26 && -- so we don't go beyond the letters A and Z in the group name
+        case ifIPv4Detail i of
+            Just ipd -> case interfaceGroup i of
+                Just ig -> case IP.decode $ "192.168.13." <> show (rd*2+1) of
+                    Just dg ->
+                          FiNATToPrivate
+                            { npNetwork = ifIPv4Netmask ipd
+                            , npRTable  = rd
+                            , npGateway = ifIPv4IP ipd
+                            } `elem` myFilters w i
+                        && FiNATToInternet
+                            { niGroup   = ig
+                            , niRTable  = rd
+                            , niGateway = dg
+                            } `elem` myFilters w i
+                    Nothing -> False
+                Nothing -> False
+            Nothing -> False
+    Nothing -> False
+
 fixGateway :: Interface -> ML.LoggingT IO ()
 fixGateway i =
     case ifRDomain i of
@@ -293,6 +442,14 @@ fixGateway i =
                         run LRAction $ "route -T " <> show rd <> " add default " <> lsRouter l
                     Nothing -> return ()
             Nothing -> return ()
+        Nothing -> return ()
+
+fixGateway' :: Interface -> ML.LoggingT IO ()
+fixGateway' i =
+    case ifRDomain i of
+        Just rd -> do
+            removeDefaultRoutes i
+            run LRAction $ "route -T " <> show rd <> " add default 192.168.13." <> show (rd*2)
         Nothing -> return ()
 
 -- TODO: have this actually delete all the default routes, not just one of them
@@ -366,6 +523,7 @@ getIP i =
         -- up on the status line...to give umb an IP, get the status line to
         -- be 'active' by bringing umb up even if its already up on the first
         -- line...don't use dhclient, that will just generate an error
+        _ <- bringIfDown i
         _ <- bringIfUp i
         return ()
     else do -- TODO: this is probably not the right action for many other drivers
@@ -381,6 +539,28 @@ clearNAT w i = case decidePriority w i of
         Nothing -> return ()
     Nothing -> return ()
 
+fixNAT' :: World -> Interface -> ML.LoggingT IO ()
+fixNAT' w i = do
+    $(myLogTH) LLDevInfo [Reason LRAction, Tag "youarehere"] Nothing
+    case ifRDomain i of
+        Just r ->case interfaceGroup i of
+            Just ig -> case decidePriority w i of
+                Just pri -> do
+                    run LRAction $ "pfctl -a stayd/" <> pri <> " -F rules"
+                    run LRAction $
+                          "echo \""
+                        <> "match out to "
+                            <> interface i <> ":network"
+                            <> " nat-to " <> interface i <> ":0 rtable " <> show r
+                        <> "\n"
+                        <> "match out on " <> ig
+                            <> " inet from any to ! <private> rtable " <> show r
+                            <> " nat-to " <> "192.168.13." <> show (r*2+1)
+                        <> "\" | pfctl -a stayd/" <> pri <> " -f -"
+                Nothing -> return ()
+            Nothing -> return ()
+        Nothing -> return ()
+
 fixNAT :: World -> Interface -> ML.LoggingT IO ()
 fixNAT w i = do
     $(myLogTH) LLDevInfo [Reason LRAction, Tag "youarehere"] Nothing
@@ -391,12 +571,13 @@ fixNAT w i = do
                     run LRAction $ "pfctl -a stayd/" <> pri <> " -F rules"
                     run LRAction $
                           "echo \""
-                        <> "match out on " <> ig
-                            <> " inet from any to ! <private> rtable " <> show r
-                            <> " nat-to " <> interface i <> ":0\n"
                         <> "match out to "
                             <> interface i <> ":network"
                             <> " nat-to " <> interface i <> ":0 rtable " <> show r
+                        <> "\n"
+                        <> "match out on " <> ig
+                            <> " inet from any to ! <private> rtable " <> show r
+                            <> " nat-to " <> interface i <> ":0"
                         <> "\" | pfctl -a stayd/" <> pri <> " -f -"
                 Nothing -> return ()
             Nothing -> return ()
@@ -416,6 +597,12 @@ internetOK :: Interface -> ML.LoggingT IO Bool
 internetOK i =
     case ifRDomain i of
         Just rd -> pingVia rd 3 "8.8.8.8"
+        Nothing -> return False
+
+vpnReachable :: Interface -> ML.LoggingT IO Bool
+vpnReachable i =
+    case ifRDomain i of
+        Just rd -> pingVia rd 3 "104.238.182.194"
         Nothing -> return False
 
 waitForConnection :: Interface -> ML.LoggingT IO Bool
@@ -438,15 +625,35 @@ ipOK i = isJust $ ifIPv4Detail i
 
 gatewayOK :: Interface -> Bool
 gatewayOK i = case defaultGateway i of
-    Just dg -> case ifIPv4Detail i of
-        Just ipd -> if ifdClass (ifDriver i) == ICmobile then
-            dg == ifIPv4IP ipd
-        else
-            case ifIPv4Lease ipd of
-                Just l -> Just dg == IP.decode (lsRouter l)
-                Nothing -> False
+    Just dg -> case idealDefaultGateway i of
+        Just ig -> dg == ig
         Nothing -> False
     Nothing -> False
+
+-- TODO: refactor routes to be associated with rdomains instead of interfaces
+-- TODO: refactor default gateways to be associated with rdomains instead of interfaces
+gatewayOK' :: World -> Interface -> Bool
+gatewayOK' w i = case ifRDomain i of
+    Just rd -> case find (\x -> interface x == ("gre" <> show rd)) (woInterfaces w) of
+        Just gre -> case defaultGateway gre of
+            Just dg -> case IP.decode $ "192.168.13." <> show (rd*2) of
+                Just ig -> dg == ig
+                Nothing -> False
+            Nothing -> False
+        Nothing -> False
+    Nothing -> False
+
+idealDefaultGateway :: Interface -> Maybe IPv4
+idealDefaultGateway i =
+    case ifIPv4Detail i of
+        Just ipd ->
+            if ifdClass (ifDriver i) == ICmobile then
+                return $ ifIPv4IP ipd
+            else
+                case ifIPv4Lease ipd of
+                    Just l -> IP.decode (lsRouter l)
+                    Nothing -> Nothing
+        Nothing -> Nothing
 
 decideGroup :: World -> ML.LoggingT IO (Maybe Text)
 decideGroup w = do

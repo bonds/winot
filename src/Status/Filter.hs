@@ -93,7 +93,7 @@ anchorParser = do
 --   }
 
 filterParser :: Parse.Parser Filter
-filterParser = n2pParser <|> n2iParser
+filterParser = Parse.try n2pParser <|> n2iParser
 
 --     match out inet from any to 10.0.0.0/24 rtable 2 nat-to 10.0.0.136
 n2pParser :: Parse.Parser Filter
