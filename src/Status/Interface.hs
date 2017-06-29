@@ -203,10 +203,10 @@ interfaceParser time ds = do
     ifInstance' <- Parse.integer
     _ <- Parse.text ": flags="
     Parse.whiteSpace
-    flagPrefix <- Parse.integer
+    flagPrefix <- Parse.some Parse.alphaNum
     _ <- Parse.char '<'
     someFlags <- Parse.commaSep $ Parse.some $ Parse.noneOf [',', '>']
-    let flags' = show flagPrefix : someFlags
+    let flags' = flagPrefix : someFlags
     _ <- Parse.char '>'
     Parse.whiteSpace
     rdomain' <- Parse.optional $ do

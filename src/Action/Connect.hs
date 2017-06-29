@@ -152,11 +152,13 @@ checkAndFix w i
             [Tag "connect", Tag "bad", Tag (interface i)] $
             Just "incorrect rdomain"
         setReady w i False
+        clearNAT w i
     | not (upOK i) = do
         $(myLogTH) LLDevInfo
             [Tag "connect", Tag "bad", Tag (interface i)] $
             Just "interface down"
         setReady w i False
+        clearNAT w i
         bu <- bringIfUp i
         when (wasSuccess bu) $ checkAndFix w
             i { ifStatus = (ifStatus i) { ifUp = True } }
@@ -165,31 +167,39 @@ checkAndFix w i
             [Tag "connect", Tag "bad", Tag (interface i)] $
             Just "not plugged into hub"
         setReady w i False
+        clearNAT w i
     | ifdClass (ifDriver i) == ICwireless
     && (not (nwidOK i) || not (wpakeyOK i) || not (strengthOK i)) = do
         $(myLogTH) LLDevInfo
             [Tag "connect", Tag "bad", Tag (interface i)] $
             Just "bad link"
         setReady w i False
+        clearNAT w i
         sac <- scanAndConnect i
         when sac $ do -- these always need to happen after getting the link, so don't wait until next loop
             getIP i
-            -- fixNAT w i
             return ()
     | not (ipOK i) = do
         $(myLogTH) LLDevInfo
             [Tag "connect", Tag "bad", Tag (interface i)] $
             Just "missing ip"
         setReady w i False
+        clearNAT w i
         getIP i
-    -- TODO: using IPSEC+GRE leads to a hang after a few minutes under OpenBSD 6.1
-    -- | ifdClass (ifDriver i) == ICwireless = do
-    --     -- TODO: check that bandwidth usage is low before believing dropped pings
-    --     ok <- vpnReachable i
-    --     checkAndFixVPN w i ok
+    | not (natToPrivateOK w i) = do
+        $(myLogTH) LLDevInfo
+            [Tag "connect", Tag "bad", Tag (interface i)] $
+            Just "nat to private config is bad"
+        setReady w i False
+        fixNatToPrivate w i
     | otherwise = do
-        ok <- internetOK i
-        checkAndFixUnprotectedConnection w i ok
+    -- | ifdClass (ifDriver i) == ICwireless = do
+        -- TODO: check that bandwidth usage is low before believing dropped pings
+        ok <- vpnReachable i
+        checkAndFixVPN w i ok
+    -- | otherwise = do
+    --     ok <- internetOK i
+    --     checkAndFixUnencryptedConnection w i ok
 
 checkAndFixVPN :: World -> Interface -> Bool -> ML.LoggingT IO ()
 checkAndFixVPN w i ok
@@ -198,6 +208,11 @@ checkAndFixVPN w i ok
             [Tag "connect", Tag "bad", Tag (interface i)] $
             Just "cannot ping vpn server"
         setReady w i False
+        fixGateway w i
+        checkAndFixNatToPrivate w i
+        case ifRDomain i of
+            Just rd -> run LRAction $ "route -T " <> show rd <> " exec ipsecctl -F"
+            Nothing -> return ()
     | otherwise = do
         ipsok <- ipsecOK i
         checkAndFixIPSec w i ipsok
@@ -209,45 +224,74 @@ checkAndFixIPSec w i ok
             [Tag "connect", Tag "bad", Tag (interface i)] $
             Just "cannot ping over ipsec tunnel"
         setReady w i False
+        checkAndFixNatToPrivate w i
         fixIpsec i
     | otherwise = do
-        greok <- greOK i
-        checkAndFixGRE w i greok
+        vok <- vxlanOK i
+        checkAndFixVxLAN w i vok
 
-checkAndFixGRE :: World -> Interface -> Bool -> ML.LoggingT IO ()
-checkAndFixGRE w i ok
+checkAndFixVxLAN :: World -> Interface -> Bool -> ML.LoggingT IO ()
+checkAndFixVxLAN w i ok
     | not ok = do
         $(myLogTH) LLDevInfo
             [Tag "connect", Tag "bad", Tag (interface i)] $
-            Just "cannot ping over gre tunnel"
+            Just "cannot ping over vxlan tunnel"
         setReady w i False
-        fixGre i
-    | not (gatewayOK' w i) = do
+        checkAndFixNatToPrivate w i
+        fixVxLAN i
+    | not (gatewayOK'' w i) = do
         $(myLogTH) LLDevInfo
             [Tag "connect", Tag "bad", Tag (interface i)] $
             Just "bad gateway"
         setReady w i False
-        fixGateway' i
-    | not (natOK' w i) = do
+        checkAndFixNatToPrivate w i
+        fixGateway' w i
+    | not (natToPublicOK w i) = do
         $(myLogTH) LLDevInfo
             [Tag "connect", Tag "bad", Tag (interface i)] $
-            Just "nat config is bad"
+            Just "nat to public config is bad"
         setReady w i False
-        fixNAT' w i
+        fixNatToPublic w i
     | otherwise = do
         $(myLogTH) LLDevInfo
             [Tag "connect", Tag (interface i)] $
             Just "ok"
         setReady w i True
 
-checkAndFixUnprotectedConnection :: World -> Interface -> Bool -> ML.LoggingT IO ()
-checkAndFixUnprotectedConnection w i ok
+-- checkAndFixGRE :: World -> Interface -> Bool -> ML.LoggingT IO ()
+-- checkAndFixGRE w i ok
+--     | not ok = do
+--         $(myLogTH) LLDevInfo
+--             [Tag "connect", Tag "bad", Tag (interface i)] $
+--             Just "cannot ping over gre tunnel"
+--         setReady w i False
+--         fixGre i
+--     | not (gatewayOK' w i) = do
+--         $(myLogTH) LLDevInfo
+--             [Tag "connect", Tag "bad", Tag (interface i)] $
+--             Just "bad gateway"
+--         setReady w i False
+--         fixGateway' w i
+--     | not (natOK' w i) = do
+--         $(myLogTH) LLDevInfo
+--             [Tag "connect", Tag "bad", Tag (interface i)] $
+--             Just "nat config is bad"
+--         setReady w i False
+--         fixNAT' w i
+--     | otherwise = do
+--         $(myLogTH) LLDevInfo
+--             [Tag "connect", Tag (interface i)] $
+--             Just "ok"
+--         setReady w i True
+
+checkAndFixUnencryptedConnection :: World -> Interface -> Bool -> ML.LoggingT IO ()
+checkAndFixUnencryptedConnection w i ok
     | not (gatewayOK i) = do
         $(myLogTH) LLDevInfo
             [Tag "connect", Tag "bad", Tag (interface i)] $
             Just "bad gateway"
         setReady w i False
-        fixGateway i
+        fixGateway w i
     | not ok = do
         $(myLogTH) LLDevInfo
             [Tag "connect", Tag "bad", Tag (interface i)] $
@@ -310,28 +354,34 @@ fixIpsec i =
             Nothing -> return ()
         Nothing -> return ()
 
-greOK :: Interface -> ML.LoggingT IO Bool
-greOK i =
+-- greOK :: Interface -> ML.LoggingT IO Bool
+-- greOK i =
+--     case ifRDomain i of
+--         Just rd -> pingVia rd 3 $ "192.168.13." <> show (rd*2)
+--         Nothing -> return False
+
+vxlanOK :: Interface -> ML.LoggingT IO Bool
+vxlanOK i =
     case ifRDomain i of
         Just rd -> pingVia rd 3 $ "192.168.13." <> show (rd*2)
         Nothing -> return False
 
-fixGre :: Interface -> ML.LoggingT IO ()
-fixGre i =
+fixVxLAN :: Interface -> ML.LoggingT IO ()
+fixVxLAN i =
     case ifRDomain i of
         Just rd -> do
-            run LRAction "sysctl net.inet.gre.allow=1"
-            run LRAction $ "ifconfig gre" <> show rd <> " rdomain " <> show rd
-            run LRAction $ "ifconfig gre" <> show rd <> " 192.168.13." <> show (rd*2+1) <> "/31"
+            run LRAction $ "ifconfig vxlan" <> show rd <> " rdomain " <> show rd
+            run LRAction $ "ifconfig vxlan" <> show rd <> " vnetid " <> show rd
+            run LRAction $ "ifconfig vxlan" <> show rd <> " 192.168.13." <> show (rd*2+1) <> "/31"
             run LRAction
-                $ "ifconfig gre" <> show rd
+                $ "ifconfig vxlan" <> show rd
                 <> " "
                 <> "192.168.13." <> show (rd*2+1) <> "/31"
                 <> " "
                 <> "192.168.13." <> show (rd*2)
             run LRAction $ T.unwords
                 [ "ifconfig"
-                , "gre" <> show rd
+                , "vxlan" <> show rd
                 , "tunnel"
                 , "192.168.99." <> show (rd*2+1)
                 , "192.168.99." <> show (rd*2)
@@ -340,19 +390,43 @@ fixGre i =
                 ]
         Nothing -> return ()
 
+-- fixGre :: Interface -> ML.LoggingT IO ()
+-- fixGre i =
+--     case ifRDomain i of
+--         Just rd -> do
+--             run LRAction "sysctl net.inet.gre.allow=1"
+--             run LRAction $ "ifconfig gre" <> show rd <> " rdomain " <> show rd
+--             run LRAction $ "ifconfig gre" <> show rd <> " 192.168.13." <> show (rd*2+1) <> "/31"
+--             run LRAction
+--                 $ "ifconfig gre" <> show rd
+--                 <> " "
+--                 <> "192.168.13." <> show (rd*2+1) <> "/31"
+--                 <> " "
+--                 <> "192.168.13." <> show (rd*2)
+--             run LRAction $ T.unwords
+--                 [ "ifconfig"
+--                 , "gre" <> show rd
+--                 , "tunnel"
+--                 , "192.168.99." <> show (rd*2+1)
+--                 , "192.168.99." <> show (rd*2)
+--                 , "tunneldomain"
+--                 , show rd
+--                 ]
+--         Nothing -> return ()
+
 wireOK :: Interface -> Bool
 wireOK i = case ifStatusDetail (ifStatus i) of
     Just s -> s /= "no carrier"
     Nothing -> True
 
 setReady :: World -> Interface -> Bool -> ML.LoggingT IO ()
-setReady w i s =
+setReady _ i s =
     if s then
         case ifReady $ ifStatus i of
             Just ir -> liftIO $ atomWrite ir s
-            Nothing ->clearNAT w i
+            Nothing -> return ()
     else
-        clearNAT w i
+        return ()
 
 rdomainOK :: Interface -> Bool
 rdomainOK = isJust . ifRDomain
@@ -406,8 +480,26 @@ natOK w i = case ifRDomain i of
             Nothing -> False
     Nothing -> False
 
-natOK' :: World -> Interface ->Bool
-natOK' w i = case ifRDomain i of
+checkAndFixNatToPrivate :: World -> Interface -> ML.LoggingT IO ()
+checkAndFixNatToPrivate w i =
+    unless (natToPrivateOK w i && length (myFilters w i) == 1)
+        (fixNatToPrivate w i)
+
+natToPrivateOK :: World -> Interface ->Bool
+natToPrivateOK w i = case ifRDomain i of
+    Just rd -> rd >= 1 && rd <= 26 && -- so we don't go beyond the letters A and Z in the group name
+        case ifIPv4Detail i of
+            Just ipd ->
+                FiNATToPrivate
+                    { npNetwork = ifIPv4Netmask ipd
+                    , npRTable  = rd
+                    , npGateway = ifIPv4IP ipd
+                    } `elem` myFilters w i
+            Nothing -> False
+    Nothing -> False
+
+natToPublicOK :: World -> Interface ->Bool
+natToPublicOK w i = case ifRDomain i of
     Just rd -> rd >= 1 && rd <= 26 && -- so we don't go beyond the letters A and Z in the group name
         case ifIPv4Detail i of
             Just ipd -> case interfaceGroup i of
@@ -428,11 +520,37 @@ natOK' w i = case ifRDomain i of
             Nothing -> False
     Nothing -> False
 
-fixGateway :: Interface -> ML.LoggingT IO ()
-fixGateway i =
+natOK'' :: World -> Interface ->Bool
+natOK'' w i = case ifRDomain i of
+    Just rd -> rd >= 1 && rd <= 26 && -- so we don't go beyond the letters A and Z in the group name
+        case ifIPv4Detail i of
+            Just ipd -> case interfaceGroup i of
+                Just ig -> case IP.decode $ "192.168.99." <> show (rd*2) of
+                    Just dg ->
+                          FiNATToPrivate
+                            { npNetwork = ifIPv4Netmask ipd
+                            , npRTable  = rd
+                            , npGateway = ifIPv4IP ipd
+                            } `elem` myFilters w i
+                        && FiNATToInternet
+                            { niGroup   = ig
+                            , niRTable  = rd
+                            , niGateway = dg
+                            } `elem` myFilters w i
+                    Nothing -> False
+                Nothing -> False
+            Nothing -> False
+    Nothing -> False
+
+fixGateway :: World -> Interface -> ML.LoggingT IO ()
+fixGateway w i =
     case ifRDomain i of
         Just rd -> case ifIPv4Detail i of
-            Just ipd -> if ifdClass (ifDriver i) == ICmobile then do
+            Just ipd -> do
+                case find (\x -> interface x == ("vxlan" <> show rd)) (woInterfaces w) of
+                    Just nic -> removeDefaultRoutes nic
+                    Nothing -> return ()
+                if ifdClass (ifDriver i) == ICmobile then do
                     removeDefaultRoutes i
                     run LRAction $ "route -T " <> show rd <> " add default " <> IP.encode (ifIPv4IP ipd)
                 else
@@ -444,11 +562,14 @@ fixGateway i =
             Nothing -> return ()
         Nothing -> return ()
 
-fixGateway' :: Interface -> ML.LoggingT IO ()
-fixGateway' i =
+fixGateway' :: World -> Interface -> ML.LoggingT IO ()
+fixGateway' w i =
     case ifRDomain i of
         Just rd -> do
             removeDefaultRoutes i
+            case find (\x -> interface x == ("vxlan" <> show rd)) (woInterfaces w) of
+                Just nic -> removeDefaultRoutes nic
+                Nothing -> return ()
             run LRAction $ "route -T " <> show rd <> " add default 192.168.13." <> show (rd*2)
         Nothing -> return ()
 
@@ -525,6 +646,7 @@ getIP i =
         -- line...don't use dhclient, that will just generate an error
         _ <- bringIfDown i
         _ <- bringIfUp i
+        _ <- waitForConnection i
         return ()
     else do -- TODO: this is probably not the right action for many other drivers
         run LRAction $ "dhclient " <> interface i
@@ -535,12 +657,51 @@ clearNAT w i = case decidePriority w i of
     Just pri -> case find (\x -> pri == anName x) (woFilterAnchors w) of
         Just fa -> case anFilters fa of
             [] -> return ()
+            -- TODO: only clear if its not already empty
             _ -> run LRAction $ "pfctl -a stayd/" <> pri <> " -F rules"
         Nothing -> return ()
     Nothing -> return ()
 
-fixNAT' :: World -> Interface -> ML.LoggingT IO ()
-fixNAT' w i = do
+fixNAT'' :: World -> Interface -> ML.LoggingT IO ()
+fixNAT'' w i = do
+    $(myLogTH) LLDevInfo [Reason LRAction, Tag "youarehere"] Nothing
+    case ifRDomain i of
+        Just r ->case interfaceGroup i of
+            Just ig -> case decidePriority w i of
+                Just pri -> do
+                    run LRAction $ "pfctl -a stayd/" <> pri <> " -F rules"
+                    run LRAction $
+                          "echo \""
+                        <> "match out to "
+                            <> interface i <> ":network"
+                            <> " nat-to " <> interface i <> ":0 rtable " <> show r
+                        <> "\n"
+                        <> "match out on " <> ig
+                            <> " inet from any to ! <private> rtable " <> show r
+                            <> " nat-to " <> "192.168.99." <> show (r*2)
+                        <> "\" | pfctl -a stayd/" <> pri <> " -f -"
+                Nothing -> return ()
+            Nothing -> return ()
+        Nothing -> return ()
+
+fixNatToPrivate :: World -> Interface -> ML.LoggingT IO ()
+fixNatToPrivate w i = do
+    $(myLogTH) LLDevInfo [Reason LRAction, Tag "youarehere"] Nothing
+    case ifRDomain i of
+        Just r -> case decidePriority w i of
+            Just pri -> do
+                run LRAction $ "pfctl -a stayd/" <> pri <> " -F rules"
+                run LRAction $
+                      "echo \""
+                    <> "match out to "
+                        <> interface i <> ":network"
+                        <> " nat-to " <> interface i <> ":0 rtable " <> show r
+                    <> "\" | pfctl -a stayd/" <> pri <> " -f -"
+            Nothing -> return ()
+        Nothing -> return ()
+
+fixNatToPublic :: World -> Interface -> ML.LoggingT IO ()
+fixNatToPublic w i = do
     $(myLogTH) LLDevInfo [Reason LRAction, Tag "youarehere"] Nothing
     case ifRDomain i of
         Just r ->case interfaceGroup i of
@@ -632,6 +793,21 @@ gatewayOK i = case defaultGateway i of
 
 -- TODO: refactor routes to be associated with rdomains instead of interfaces
 -- TODO: refactor default gateways to be associated with rdomains instead of interfaces
+gatewayOK'' :: World -> Interface -> Bool
+gatewayOK'' w i = case ifRDomain i of
+    Just rd -> case defaultGateway i of -- there should be no default associated with physical card
+        Just _ -> False
+        Nothing -> case find (\x -> interface x == ("vxlan" <> show rd)) (woInterfaces w) of
+            Just nic -> case defaultGateway nic of
+                Just dg -> case IP.decode $ "192.168.13." <> show (rd*2) of
+                    Just ig -> dg == ig
+                    Nothing -> False
+                Nothing -> False
+            Nothing -> False
+    Nothing -> False
+
+-- TODO: refactor routes to be associated with rdomains instead of interfaces
+-- TODO: refactor default gateways to be associated with rdomains instead of interfaces
 gatewayOK' :: World -> Interface -> Bool
 gatewayOK' w i = case ifRDomain i of
     Just rd -> case find (\x -> interface x == ("gre" <> show rd)) (woInterfaces w) of
@@ -693,102 +869,3 @@ decidePriority w i
     wirelessIfs = filter (\x -> ifdClass (ifDriver x) == ICwireless) $ woInterfaces w
     usbIfs = filter (\x -> ifdClass (ifDriver x) == ICusb) $ woInterfaces w
     pciIfs = filter (\x -> ifdClass (ifDriver x) == ICpci) $ woInterfaces w
-
--- create ipsec tunnel
--- create gre tunnel
--- add route to vpn server
--- set default gateway to use gre tunnel
--- mark as ready
-
--- function active {
---     count=1
---     while [ $count -lt 30 ]
---     do
---         if ifconfig $1 | grep "status" | grep "active"; then
---             return 0
---         else
---             echo -n "."
---             sleep 1
---         fi
---         count=`expr $count + 1`
---     done
---     return 1
--- }
-
--- NIC=$(echo $(nics) | head -n1)
--- RDOMAIN=2
--- LOCAL_SUFFIX=5
--- REMOTE_SUFFIX=4
-
--- while true; do
---     if ! echo "$info" | grep "rdomain $RDOMAIN"; then
---         echo setting rdomain...
---         ifconfig $NIC rdomain $RDOMAIN
---     fi
---     if ! ping -c 3 -w 1 -V $RDOMAIN $gw; then
---         echo connecting to wifi...
---         rm /tmp/wireless.conf
---         echo "device $NIC\ninclude /home/scott/.wireless.conf" > /tmp/wireless.conf
---         /usr/local/bin/wireless /tmp/wireless.conf
---         rm /tmp/wireless.conf
---         ifconfig $NIC -bssid
---         if active $NIC; then
---             dhclient $NIC
---             pfctl -a stayd/wlan -F rules
---             echo "match out on stayd_wlan inet from any to ! <private> rtable $RDOMAIN nat-to $NIC:0\nmatch out to $NIC:network nat-to $NIC:0 rtable $RDOMAIN" | pfctl -a stayd/$RDOMAIN -f -
---             link=1
---         else
---             link=0
---         fi
---     else
---         link=1
---     fi
---     # if [ $link == 1 ]; then
---     #     if ! ping -c 1 -w 1 -V $RDOMAIN 192.168.99.$REMOTE_SUFFIX; then
---     #         echo creating ipsec tunnel...
---     #         pkill -T $RDOMAIN iked
---     #         ifconfig vether$RDOMAIN 192.168.99.$LOCAL_SUFFIX/31 rdomain $RDOMAIN
---     #         ifconfig enc$RDOMAIN rdomain $RDOMAIN
---     #         route -T $RDOMAIN exec iked -f -D NAME=wlan -D FROM="192.168.99.$LOCAL_SUFFIX" -D TO="192.168.99.$REMOTE_SUFFIX" -D NIC=$NIC -D RDOMAIN=$RDOMAIN -D SRCID="vpn$RDOMAIN@maybe.ggr.com" -D TAP="enc$RDOMAIN"
---     #         iked=1
---     #     else
---     #         iked=1
---     #     fi
---     # else
---     #     iked=0
---     # fi
---     # if [ $iked == 1 ]; then
---     #     if ! ping -c 1 -w 1 -V $RDOMAIN 192.168.13.$REMOTE_SUFFIX; then
---     #         echo connecting to gre...
---     #         ifconfig gre$RDOMAIN rdomain $RDOMAIN
---     #         ifconfig gre$RDOMAIN 192.168.13.$LOCAL_SUFFIX/31 192.168.13.$REMOTE_SUFFIX
---     #         ifconfig gre$RDOMAIN tunnel 192.168.99.$LOCAL_SUFFIX 192.168.99.$REMOTE_SUFFIX tunneldomain $RDOMAIN
---     #         gre=1
---     #     else
---     #         gre=1
---     #     fi
---     # else
---     #     gre=0
---     # fi
---     # if [ $iked == 1 ]; then
---     #     if ! ping -c 1 -w 1 -V $RDOMAIN 192.168.14.$REMOTE_SUFFIX; then
---     #         echo creating vxlan tunnel...
---     #         ifconfig vxlan$RDOMAIN rdomain $RDOMAIN vnetid $RDOMAIN
---     #         ifconfig vxlan$RDOMAIN 192.168.14.$LOCAL_SUFFIX/24
---     #         ifconfig vxlan$RDOMAIN tunnel 192.168.99.$LOCAL_SUFFIX 192.168.99.$REMOTE_SUFFIX tunneldomain $RDOMAIN
---     #         gre=1
---     #     else
---     #         gre=1
---     #     fi
---     # else
---     #     gre=0
---     # fi
---     # if [ $gre == 1 ]; then
---     #     # echo "match out on stayd_wlan inet from any to ! <private> rtable $RDOMAIN nat-to 192.168.13.$LOCAL_SUFFIX" | pfctl -a stayd/wlan -f -
---     #     route -T $RDOMAIN delete 104.238.182.194
---     #     route -T $RDOMAIN add 104.238.182.194 $gw
---     #     route -T $RDOMAIN change default 192.168.13.$REMOTE_SUFFIX
---     #     echo ok
---     # fi
---     sleep 5
--- done
