@@ -138,6 +138,12 @@ connect w i =
                 _ <- liftIO $ C.forkIO $ runMyLogs $ do
                     $(myLogTH) LLDevInfo [Tag "lock", Tag "gotit", Tag (interface i)] Nothing
                     checkAndFix w i
+                    ready <- getReady w i
+                    when (not ready && ipOK i && not (natToPrivateOK w i)) $ do
+                        $(myLogTH) LLDevInfo
+                            [Tag "connect", Tag "bad", Tag (interface i)] $
+                            Just "nat to private config is bad"
+                        fixNatToPrivate w i
                     liftIO $ S.atomically $ S.takeTMVar lock
                     $(myLogTH) LLDevInfo [Tag "lock", Tag "released", Tag (interface i)] Nothing
                     return ()
@@ -186,12 +192,6 @@ checkAndFix w i
         setReady w i False
         clearNAT w i
         getIP i
-    | not (natToPrivateOK w i) = do
-        $(myLogTH) LLDevInfo
-            [Tag "connect", Tag "bad", Tag (interface i)] $
-            Just "nat to private config is bad"
-        setReady w i False
-        fixNatToPrivate w i
     | otherwise = do
     -- | ifdClass (ifDriver i) == ICwireless = do
         -- TODO: check that bandwidth usage is low before believing dropped pings
@@ -208,11 +208,13 @@ checkAndFixVPN w i ok
             [Tag "connect", Tag "bad", Tag (interface i)] $
             Just "cannot ping vpn server"
         setReady w i False
-        fixGateway w i
-        checkAndFixNatToPrivate w i
         case ifRDomain i of
             Just rd -> run LRAction $ "route -T " <> show rd <> " exec ipsecctl -F"
             Nothing -> return ()
+        fixGateway w i
+        ok' <- internetOK i
+        checkAndFixUnencryptedConnection w i ok'
+        -- checkAndFixNatToPrivate w i
     | otherwise = do
         ipsok <- ipsecOK i
         checkAndFixIPSec w i ipsok
@@ -289,23 +291,23 @@ checkAndFixUnencryptedConnection w i ok
     | not (gatewayOK i) = do
         $(myLogTH) LLDevInfo
             [Tag "connect", Tag "bad", Tag (interface i)] $
-            Just "bad gateway"
+            Just "unenc bad gateway"
         setReady w i False
         fixGateway w i
     | not ok = do
         $(myLogTH) LLDevInfo
             [Tag "connect", Tag "bad", Tag (interface i)] $
-            Just "cannot ping internet"
+            Just "unenc cannot ping internet"
         setReady w i False
     | not (natOK w i) = do
         $(myLogTH) LLDevInfo
             [Tag "connect", Tag "bad", Tag (interface i)] $
-            Just "nat config is bad"
+            Just "unenc nat config is bad"
         setReady w i False
         fixNAT w i
     | otherwise = do
         $(myLogTH) LLDevInfo
-            [Tag "connect", Tag (interface i)] $
+            [Tag "connect", Tag "ok", Tag (interface i)] $
             Just "ok"
         setReady w i True
 
@@ -428,6 +430,12 @@ setReady _ i s =
     else
         return ()
 
+getReady :: World -> Interface -> ML.LoggingT IO Bool
+getReady _ i =
+    case ifReady $ ifStatus i of
+        Just ir -> liftIO $ atomRead ir
+        Nothing -> return False
+
 rdomainOK :: Interface -> Bool
 rdomainOK = isJust . ifRDomain
 
@@ -466,16 +474,17 @@ natOK w i = case ifRDomain i of
         case ifIPv4Detail i of
             Just ipd -> case interfaceGroup i of
                 Just ig ->
-                      FiNATToPrivate
-                        { npNetwork = ifIPv4Netmask ipd
-                        , npRTable  = rd
-                        , npGateway = ifIPv4IP ipd
-                        } `elem` myFilters w i
-                    && FiNATToInternet
+                    [ FiNATToInternet
                         { niGroup   = ig
                         , niRTable  = rd
                         , niGateway = ifIPv4IP ipd
-                        } `elem` myFilters w i
+                        }
+                    , FiNATToPrivate
+                        { npNetwork = ifIPv4Netmask ipd
+                        , npRTable  = rd
+                        , npGateway = ifIPv4IP ipd
+                        }
+                    ] == myFilters w i
                 Nothing -> False
             Nothing -> False
     Nothing -> False
@@ -490,11 +499,12 @@ natToPrivateOK w i = case ifRDomain i of
     Just rd -> rd >= 1 && rd <= 26 && -- so we don't go beyond the letters A and Z in the group name
         case ifIPv4Detail i of
             Just ipd ->
-                FiNATToPrivate
+                [ FiNATToPrivate
                     { npNetwork = ifIPv4Netmask ipd
                     , npRTable  = rd
                     , npGateway = ifIPv4IP ipd
-                    } `elem` myFilters w i
+                    }
+                ] == myFilters w i
             Nothing -> False
     Nothing -> False
 
@@ -505,38 +515,17 @@ natToPublicOK w i = case ifRDomain i of
             Just ipd -> case interfaceGroup i of
                 Just ig -> case IP.decode $ "192.168.13." <> show (rd*2+1) of
                     Just dg ->
-                          FiNATToPrivate
-                            { npNetwork = ifIPv4Netmask ipd
-                            , npRTable  = rd
-                            , npGateway = ifIPv4IP ipd
-                            } `elem` myFilters w i
-                        && FiNATToInternet
+                        [ FiNATToInternet
                             { niGroup   = ig
                             , niRTable  = rd
                             , niGateway = dg
-                            } `elem` myFilters w i
-                    Nothing -> False
-                Nothing -> False
-            Nothing -> False
-    Nothing -> False
-
-natOK'' :: World -> Interface ->Bool
-natOK'' w i = case ifRDomain i of
-    Just rd -> rd >= 1 && rd <= 26 && -- so we don't go beyond the letters A and Z in the group name
-        case ifIPv4Detail i of
-            Just ipd -> case interfaceGroup i of
-                Just ig -> case IP.decode $ "192.168.99." <> show (rd*2) of
-                    Just dg ->
-                          FiNATToPrivate
+                            }
+                        , FiNATToPrivate
                             { npNetwork = ifIPv4Netmask ipd
                             , npRTable  = rd
                             , npGateway = ifIPv4IP ipd
-                            } `elem` myFilters w i
-                        && FiNATToInternet
-                            { niGroup   = ig
-                            , niRTable  = rd
-                            , niGateway = dg
-                            } `elem` myFilters w i
+                            }
+                        ] == myFilters w i
                     Nothing -> False
                 Nothing -> False
             Nothing -> False
@@ -662,28 +651,6 @@ clearNAT w i = case decidePriority w i of
         Nothing -> return ()
     Nothing -> return ()
 
-fixNAT'' :: World -> Interface -> ML.LoggingT IO ()
-fixNAT'' w i = do
-    $(myLogTH) LLDevInfo [Reason LRAction, Tag "youarehere"] Nothing
-    case ifRDomain i of
-        Just r ->case interfaceGroup i of
-            Just ig -> case decidePriority w i of
-                Just pri -> do
-                    run LRAction $ "pfctl -a stayd/" <> pri <> " -F rules"
-                    run LRAction $
-                          "echo \""
-                        <> "match out to "
-                            <> interface i <> ":network"
-                            <> " nat-to " <> interface i <> ":0 rtable " <> show r
-                        <> "\n"
-                        <> "match out on " <> ig
-                            <> " inet from any to ! <private> rtable " <> show r
-                            <> " nat-to " <> "192.168.99." <> show (r*2)
-                        <> "\" | pfctl -a stayd/" <> pri <> " -f -"
-                Nothing -> return ()
-            Nothing -> return ()
-        Nothing -> return ()
-
 fixNatToPrivate :: World -> Interface -> ML.LoggingT IO ()
 fixNatToPrivate w i = do
     $(myLogTH) LLDevInfo [Reason LRAction, Tag "youarehere"] Nothing
@@ -710,13 +677,13 @@ fixNatToPublic w i = do
                     run LRAction $ "pfctl -a stayd/" <> pri <> " -F rules"
                     run LRAction $
                           "echo \""
-                        <> "match out to "
-                            <> interface i <> ":network"
-                            <> " nat-to " <> interface i <> ":0 rtable " <> show r
-                        <> "\n"
                         <> "match out on " <> ig
                             <> " inet from any to ! <private> rtable " <> show r
                             <> " nat-to " <> "192.168.13." <> show (r*2+1)
+                        <> "\n"
+                        <> "match out to "
+                            <> interface i <> ":network"
+                            <> " nat-to " <> interface i <> ":0 rtable " <> show r
                         <> "\" | pfctl -a stayd/" <> pri <> " -f -"
                 Nothing -> return ()
             Nothing -> return ()
@@ -732,13 +699,13 @@ fixNAT w i = do
                     run LRAction $ "pfctl -a stayd/" <> pri <> " -F rules"
                     run LRAction $
                           "echo \""
-                        <> "match out to "
-                            <> interface i <> ":network"
-                            <> " nat-to " <> interface i <> ":0 rtable " <> show r
-                        <> "\n"
                         <> "match out on " <> ig
                             <> " inet from any to ! <private> rtable " <> show r
                             <> " nat-to " <> interface i <> ":0"
+                        <> "\n"
+                        <> "match out to "
+                            <> interface i <> ":network"
+                            <> " nat-to " <> interface i <> ":0 rtable " <> show r
                         <> "\" | pfctl -a stayd/" <> pri <> " -f -"
                 Nothing -> return ()
             Nothing -> return ()
